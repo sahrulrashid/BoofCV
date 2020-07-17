@@ -395,7 +395,7 @@ public class ThreeViewEstimateMetricScene implements VerbosePrint {
 				}
 			} else {
 				// TODO Handle this better
-				System.out.println("Self calibration failed!");
+				if( verbose != null ) verbose.println("Self calibration failed! Using default.");
 				for (int i = 0; i < 3; i++) {
 					CameraPinhole p = new CameraPinhole(width / 2, width / 2, 0, 0, 0, width, height);
 					listPinhole.add(p);
