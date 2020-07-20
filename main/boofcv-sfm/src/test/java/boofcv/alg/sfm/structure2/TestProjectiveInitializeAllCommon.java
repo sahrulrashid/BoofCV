@@ -59,6 +59,7 @@ class TestProjectiveInitializeAllCommon {
 		var alg = new ProjectiveInitializeAllCommon();
 
 		for (int seedIdx = 0; seedIdx < 3; seedIdx++) {
+			// TODO Use the new mock scene to test?
 			var db = new MockLookupSimilarImages(4,0xDEADBEEF);
 			View seed = db.graph.nodes.get(seedIdx);
 			var seedConnIdx = GrowQueue_I32.array(0,2);

@@ -42,7 +42,6 @@ import org.ejml.dense.row.CommonOps_DDRM;
 
 import javax.annotation.Nullable;
 import java.io.PrintStream;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -79,13 +78,13 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 	// Used to find the 3D location of a feature after the view has been upgraded to metric
 	@Getter TriangulateNViewsMetric triangulator;
 
+	protected @Getter SelfCalibrationLinearDualQuadratic selfCalib;
+
 	// convenience references to input
 	SceneWorkingGraph graph;
 	LookupSimilarImages db;
 
 	//------------------------- Workspace Variables
-	// list of workGraph views because it's stored as a map
-	List<SceneWorkingGraph.View> workViews;
 	final FastQueue<ImageInfo> listInfo = new FastQueue<>(ImageInfo::new, ImageInfo::reset);
 	final FastQueue<Point2D_F64> triangulateObs = new FastQueue<>(Point2D_F64::new);
 	final FastQueue<Se3_F64> triangulateViews = new FastQueue<>(Se3_F64::new);
@@ -101,6 +100,8 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 		this.config = config;
 		this.bundleAdjustment = bundleAdjustment;
 		this.triangulator = triangulator;
+
+		this.selfCalib = new SelfCalibrationLinearDualQuadratic(config.aspectRatio);
 	}
 
 	/** Default constructor for unit testing */
@@ -139,8 +140,8 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 			}
 		}
 		// undo how the principle point was forced to be (0,0)
-		for (int viewCnt = 0; viewCnt < workViews.size(); viewCnt++) {
-			SceneWorkingGraph.View v = workViews.get(viewCnt);
+		for (int viewCnt = 0; viewCnt < sceneGraph.viewList.size(); viewCnt++) {
+			SceneWorkingGraph.View v = sceneGraph.viewList.get(viewCnt);
 			v.pinhole.cx = v.pinhole.width/2;
 			v.pinhole.cy = v.pinhole.height/2;
 		}
@@ -154,11 +155,11 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 	void initialize(LookupSimilarImages db, SceneWorkingGraph sceneGraph) {
 		this.db = db;
 		this.graph = sceneGraph;
-		// Put the views into a list and save their image shapes
+
+		// Save the shape of each image
 		ImageDimension shape = new ImageDimension();
-		workViews = new ArrayList<>(sceneGraph.getAllViews());
-		for (int viewCnt = 0; viewCnt < workViews.size(); viewCnt++) {
-			SceneWorkingGraph.View v = workViews.get(viewCnt);
+		for (int viewCnt = 0; viewCnt < sceneGraph.viewList.size(); viewCnt++) {
+			SceneWorkingGraph.View v = sceneGraph.viewList.get(viewCnt);
 			db.lookupShape(v.pview.id,shape);
 			v.pinhole.width = shape.width;
 			v.pinhole.height = shape.height;
@@ -174,11 +175,10 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 		// Perform self calibration using all the found camera matrices
 		// For self calibration pixel observations must have a principle point of (0,0) this is done by shifting
 		// all observation and camera matrices over by 1/2 the width and height
-		var selfcalib = new SelfCalibrationLinearDualQuadratic(config.aspectRatio);
 		// C = [1 0 -w/2; 0 1 -h/2; 0 0 1]
 		var C = CommonOps_DDRM.identity(3);
 		var P = new DMatrixRMaj(3,4);
-		workViews.forEach(o->{
+		graph.viewList.forEach(o->{
 			// Create a matrix which will make the projective camera matrix centered at the image's origin
 			// C*x = C*P*X
 			C.set(0,2,-o.pinhole.width/2);
@@ -186,28 +186,35 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 			// Apply to the found projective camera matrix
 			CommonOps_DDRM.mult(C,o.projective,P);
 			// Add it to the list. A copy is made internally so we can recycle P
-			selfcalib.addCameraMatrix(P);
+			selfCalib.addCameraMatrix(P);
 		});
 
-		GeometricResult result = selfcalib.solve();
+		GeometricResult result = selfCalib.solve();
 		if( result != GeometricResult.SUCCESS ) {
-			if( verbose != null ) verbose.println("Self calibration failed. "+result);
+			if( verbose != null ) {
+				verbose.println("Self calibration failed. "+result+" used views.size="+graph.viewList.size());
+				// Print out singular values to see if there was a clear null space
+				double[] sv = selfCalib.getSvd().getSingularValues();
+				for (int i = 0; i < sv.length; i++) {
+					verbose.println("  sv["+i+"] = "+sv[i]);
+				}
+			}
 			return false;
 		}
 		// homography to go from projective to metric
 		DMatrixRMaj H = new DMatrixRMaj(4,4);
 		// convert camera matrix from projective to metric
-		if( !MultiViewOps.absoluteQuadraticToH(selfcalib.getQ(),H) ) {
+		if( !MultiViewOps.absoluteQuadraticToH(selfCalib.getQ(),H) ) {
 			if( verbose != null ) verbose.println("Projective to metric failed to compute H");
 			return false;
 		}
 
 		// Save the upgraded metric calibration for each camera
 		DMatrixRMaj K = new DMatrixRMaj(3,3);
-		List<SelfCalibrationLinearDualQuadratic.Intrinsic> solutions = selfcalib.getSolutions();
-		for (int viewIdx = 0; viewIdx < workViews.size(); viewIdx++) {
+		List<SelfCalibrationLinearDualQuadratic.Intrinsic> solutions = selfCalib.getSolutions();
+		for (int viewIdx = 0; viewIdx < graph.viewList.size(); viewIdx++) {
 			SelfCalibrationLinearDualQuadratic.Intrinsic intrinsic = solutions.get(viewIdx);
-			SceneWorkingGraph.View wv = workViews.get(viewIdx);
+			SceneWorkingGraph.View wv = graph.viewList.get(viewIdx);
 			// the image shape was already set
 			wv.pinhole.fsetK(intrinsic.fx,intrinsic.fy,intrinsic.skew,0,0,wv.pinhole.width,wv.pinhole.height);
 
@@ -217,12 +224,12 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 
 		// scale is arbitrary. Set max translation to 1. This should be better numerically
 		double maxT = 0;
-		for (int viewIdx = 0; viewIdx < workViews.size(); viewIdx++) {
-			SceneWorkingGraph.View wv = workViews.get(viewIdx);
+		for (int viewIdx = 0; viewIdx < graph.viewList.size(); viewIdx++) {
+			SceneWorkingGraph.View wv = graph.viewList.get(viewIdx);
 			maxT = Math.max(maxT,wv.world_to_view.T.norm());
 		}
-		for (int viewIdx = 0; viewIdx < workViews.size(); viewIdx++) {
-			SceneWorkingGraph.View wv = workViews.get(viewIdx);
+		for (int viewIdx = 0; viewIdx < graph.viewList.size(); viewIdx++) {
+			SceneWorkingGraph.View wv = graph.viewList.get(viewIdx);
 			wv.world_to_view.T.scale(1.0/maxT);
 		}
 		return true;
@@ -428,14 +435,14 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 	}
 
 	boolean buildMetricSceneForBundleAdjustment() {
-		final int numViews = workViews.size();
+		final int numViews = graph.viewList.size();
 
 		// Construct bundle adjustment data structure
 		structure.initialize(numViews,numViews, graph.features.size());
 		observations.initialize(numViews);
 
 		for (int viewCnt = 0; viewCnt < numViews; viewCnt++) {
-			SceneWorkingGraph.View wview = workViews.get(viewCnt);
+			SceneWorkingGraph.View wview = graph.viewList.get(viewCnt);
 			wview.index = viewCnt;
 			CameraPinhole cp = wview.pinhole;
 			BundlePinholeSimplified bp = new BundlePinholeSimplified();
@@ -475,9 +482,9 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 	}
 
 	void copyBundleAdjustmentResults() {
-		final int numViews = workViews.size();
+		final int numViews = graph.viewList.size();
 		for (int viewCnt = 0; viewCnt < numViews; viewCnt++) {
-			SceneWorkingGraph.View wview = workViews.get(viewCnt);
+			SceneWorkingGraph.View wview = graph.viewList.get(viewCnt);
 			wview.world_to_view.set(structure.getViews().get(viewCnt).worldToView);
 			// TODO what to do with optimized model?
 		}
@@ -491,9 +498,9 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 	/**
 	 * Returns the bundle adjustment camera model.
 	 */
-	public BundleAdjustmentCamera getRefinedCamera( String viewID ) {
+	public <C extends BundleAdjustmentCamera>C getRefinedCamera( String viewID ) {
 		int index = graph.views.get(viewID).index;
-		return structure.getCameras().get(index).model;
+		return (C)structure.getCameras().get(index).model;
 	}
 
 	@Override

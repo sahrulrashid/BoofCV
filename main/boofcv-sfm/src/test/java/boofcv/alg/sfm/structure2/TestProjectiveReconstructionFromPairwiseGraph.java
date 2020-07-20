@@ -41,48 +41,33 @@ import static org.junit.jupiter.api.Assertions.*;
 class TestProjectiveReconstructionFromPairwiseGraph {
 
 	/**
-	 * Test with the minimum number of views
+	 * Random scene with fairly linear motion. Everything is randomized and physical constraints on camera are enforced
 	 */
 	@Test
-	void process_perfect_linear_3() {
+	void process_perfect() {
 		var alg = new ProjectiveReconstructionFromPairwiseGraph();
-		alg.getInitProjective().utils.configConvergeSBA.maxIterations = 0; // TODO remove.  SBA causes an error. Normalization?
-		var db = new MockLookupSimilarImagesCircleAround().init(3,1);
-
-		assertTrue(alg.process(db,db.graph));
-
-		checkCameraMatrices(alg, db);
-	}
-
-	/**
-	 * Test with a bunch of views
-	 */
-	@Test
-	void process_perfect_linear_10() {
-		var alg = new ProjectiveReconstructionFromPairwiseGraph();
-		alg.getInitProjective().utils.configConvergeSBA.maxIterations = 0; // TODO remove. SBA causes an error. Normalization?
-		var db = new MockLookupSimilarImagesCircleAround().init(10,2);
-
-		assertTrue(alg.process(db,db.graph));
-
-		checkCameraMatrices(alg, db);
+		for (int numViews = 3; numViews <= 12; numViews++) {
+			var db = new MockLookupSimilarImagesRealistic().setSeed(numViews).setFeatures(300).init(numViews,0.3,4.0,2);
+			PairwiseImageGraph2 graph = db.createPairwise();
+			assertTrue(alg.process(db,graph));
+			checkCameraMatrices(alg,db);
+		}
 	}
 
 	/**
 	 * Compare found camera matrices against truth by converting them into the same projective scale
 	 */
-	private void checkCameraMatrices(ProjectiveReconstructionFromPairwiseGraph alg, MockLookupSimilarImagesCircleAround db) {
-		List<SceneWorkingGraph.View> foundViews = new ArrayList<>(alg.workGraph.getAllViews());
-		assertEquals(db.graph.nodes.size, foundViews.size());
+	private void checkCameraMatrices(ProjectiveReconstructionFromPairwiseGraph alg, MockLookupSimilarImagesRealistic db) {
+		List<SceneWorkingGraph.View> foundViews = alg.workGraph.getAllViews();
+		assertEquals(db.views.size(), foundViews.size());
 
 		CompatibleProjectiveHomography compatible = new CompatibleProjectiveHomography();
 		List<DMatrixRMaj> listA = new ArrayList<>();
 		List<DMatrixRMaj> listB = new ArrayList<>();
 
-		for( String id : db.viewIds ) {
-//			System.out.println("id="+id+" index="+db.viewIds.indexOf(id));
-			listA.add( alg.workGraph.lookupView( id ).projective);
-			listB.add( db.listCameraMatrices.get( db.viewIds.indexOf(id)) );
+		for( MockLookupSimilarImagesRealistic.View mv : db.views ) {
+			listA.add( alg.workGraph.lookupView( mv.id ).projective);
+			listB.add( mv.camera );
 		}
 
 		DMatrixRMaj H = new DMatrixRMaj(4,4);
@@ -94,7 +79,7 @@ class TestProjectiveReconstructionFromPairwiseGraph {
 			DMatrixRMaj expected = listB.get(i);
 			double scale = expected.get(0,0)/found.get(0,0);
 			CommonOps_DDRM.scale(scale,found);
-			double tol = CommonOps_DDRM.elementMaxAbs(found)*1e-4;
+			double tol = CommonOps_DDRM.elementMaxAbs(found)*1e-5;
 			assertTrue(MatrixFeatures_DDRM.isIdentical(expected,found, tol));
 		}
 	}
@@ -153,7 +138,6 @@ class TestProjectiveReconstructionFromPairwiseGraph {
 		// this view is known but has a worse score
 		View expected = open.get(8);
 		expected.connections.forEach((i,o)->o.countH=70); // ensure this view has a better score
-		alg.workGraph.addView(open.get(8));
 		open.forEach(7,10,(i,o)->alg.workGraph.addView(o));
 
 		View selected = alg.selectNextToProcess(open);
@@ -180,6 +164,14 @@ class TestProjectiveReconstructionFromPairwiseGraph {
 
 		View selected = alg.selectNextToProcess(open);
 		assertSame(expected, selected);
+	}
+
+	/**
+	 * Fail if two connections have no common connection between them
+	 */
+	@Test
+	void selectNextToProcess_TwoConnections_KnownCommon() {
+		fail("Implement");
 	}
 
 	@Test

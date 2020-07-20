@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018, Peter Abeles. All Rights Reserved.
+ * Copyright (c) 2011-2020, Peter Abeles. All Rights Reserved.
  *
  * This file is part of BoofCV (http://boofcv.org).
  *
@@ -20,6 +20,8 @@ package boofcv.alg.geo.selfcalib;
 
 import boofcv.alg.geo.GeometricResult;
 import boofcv.alg.geo.MultiViewOps;
+import lombok.Getter;
+import lombok.Setter;
 import org.ejml.UtilEjml;
 import org.ejml.data.DMatrix3;
 import org.ejml.data.DMatrix3x3;
@@ -65,12 +67,12 @@ import java.util.List;
  */
 public class SelfCalibrationLinearDualQuadratic extends SelfCalibrationBase {
 
-	SingularValueDecomposition_F64<DMatrixRMaj> svd = DecompositionFactory_DDRM.svd(10,10,
+	@Getter SingularValueDecomposition_F64<DMatrixRMaj> svd = DecompositionFactory_DDRM.svd(10,10,
 			false,true,true);
 
 	// constraints
-	boolean knownAspect;
-	boolean zeroSkew;
+	@Getter boolean knownAspect;
+	@Getter boolean zeroSkew;
 
 	// number of equations
 	int eqs;
@@ -85,7 +87,7 @@ public class SelfCalibrationLinearDualQuadratic extends SelfCalibrationBase {
 	DMatrix4x4 Q = new DMatrix4x4();
 
 	// A singular value is considered zero if it is smaller than this number
-	double singularThreshold=1e-3;
+	@Getter @Setter double singularThreshold=1e-3;
 
 	/**
 	 * Constructor for zero-principle point and (optional) zero-skew
@@ -141,7 +143,7 @@ public class SelfCalibrationLinearDualQuadratic extends SelfCalibrationBase {
 
 		// determine if the solution is good by looking at two smallest singular values
 		// If there isn't a steep drop it either isn't singular or more there is more than 1 singular value
-		double sv[] = svd.getSingularValues();
+		double[] sv = svd.getSingularValues();
 		Arrays.sort(sv);
 		if( singularThreshold*sv[1] <= sv[0] )  {
 //			System.out.println("ratio = "+(sv[0]/sv[1]));
@@ -323,14 +325,6 @@ public class SelfCalibrationLinearDualQuadratic extends SelfCalibrationBase {
 				L.data[index++] = B.a1*B.a1*RR - B.a2*B.a2;
 			}
 		}
-	}
-
-	public double getSingularThreshold() {
-		return singularThreshold;
-	}
-
-	public void setSingularThreshold(double singularThreshold) {
-		this.singularThreshold = singularThreshold;
 	}
 
 	public List<Intrinsic> getSolutions() {

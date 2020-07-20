@@ -166,5 +166,10 @@ public class PairwiseImageGraph2 {
 				throw new RuntimeException("BUG!");
 			}
 		}
+
+		@Override
+		public String toString() {
+			return "Motion( "+(is3D?"3D ":"")+" '"+src.id+"' <-> '"+dst.id+"')";
+		}
 	}
 }
