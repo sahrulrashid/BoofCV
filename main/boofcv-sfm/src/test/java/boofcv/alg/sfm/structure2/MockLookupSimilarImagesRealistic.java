@@ -88,7 +88,6 @@ class MockLookupSimilarImagesRealistic implements LookupSimilarImages {
 			points.add(f);
 		}
 
-
 		// render pixel coordinates of all points
 		for (int viewCnt = 0; viewCnt < numViews; viewCnt++) {
 			View v = new View();
@@ -126,7 +125,7 @@ class MockLookupSimilarImagesRealistic implements LookupSimilarImages {
 			}
 			assertBoof(v.observations.size()>0);
 
-			System.out.println("view="+viewCnt+" obs.size="+v.observations.size());
+//			System.out.println("view="+viewCnt+" obs.size="+v.observations.size());
 			// Randomize the order of the observations
 			Collections.shuffle(v.observations,rand);
 			views.add(v);
@@ -194,10 +193,8 @@ class MockLookupSimilarImagesRealistic implements LookupSimilarImages {
 				}
 			}
 		}
-
 		return graph;
 	}
-
 
 	@Override
 	public List<String> getImageIDs() {
@@ -249,6 +246,25 @@ class MockLookupSimilarImagesRealistic implements LookupSimilarImages {
 	@Override
 	public void lookupShape(String target, ImageDimension shape) {
 		shape.set(intrinsic.width,intrinsic.height);
+	}
+
+	/**
+	 * Returns the feature index given a view and the observation in the view
+	 */
+	public int observationToFeatureIdx(int viewIdx, int observationIdx) {
+		View v = views.get(viewIdx);
+		Feature f = v.observations.get(observationIdx).feature;
+		return points.indexOf(f);
+	}
+
+	public Observation featureToObservation(int viewIdx , int featureIdx ) {
+		View v = views.get(viewIdx);
+		Feature f = points.get(featureIdx);
+		for (int i = 0; i < v.observations.size(); i++) {
+			if( v.observations.get(i).feature == f )
+				return v.observations.get(i);
+		}
+		return null;
 	}
 
 	private static class Feature {

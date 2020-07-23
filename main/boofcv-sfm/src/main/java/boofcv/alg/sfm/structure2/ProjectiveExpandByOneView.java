@@ -129,7 +129,7 @@ public class ProjectiveExpandByOneView implements VerbosePrint {
 			return false;
 
 		// Compute the conversion which will make the two frames compatible
-		if (!computeConversionHomography())
+		if (!computeConversionHomography()) // TODO refine by minimizing reprojection error
 			return false;
 
 		// Improve the fit using bundle adjustment. This will reduce the rate at which errors are built up since

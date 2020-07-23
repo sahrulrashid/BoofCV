@@ -18,6 +18,7 @@
 
 package boofcv.alg.sfm.structure2;
 
+import boofcv.alg.geo.MultiViewOps;
 import boofcv.alg.geo.pose.CompatibleProjectiveHomography;
 import boofcv.alg.sfm.structure2.PairwiseImageGraph2.Motion;
 import boofcv.alg.sfm.structure2.PairwiseImageGraph2.View;
@@ -45,9 +46,15 @@ class TestProjectiveReconstructionFromPairwiseGraph {
 	 */
 	@Test
 	void process_perfect() {
+		// NOTE: Accuracy degrades as the number of views increases. The tolerance is also hard coded at 1e-5 and 1e-7 or 1e-8
+		//       would be more reasonable upper limit
+		//       Additional work should be put into this so that accuracy with perfect data is independent of the number
+		//       of views.
+
 		var alg = new ProjectiveReconstructionFromPairwiseGraph();
-		for (int numViews = 3; numViews <= 12; numViews++) {
-			var db = new MockLookupSimilarImagesRealistic().setSeed(numViews).setFeatures(300).init(numViews,0.3,4.0,2);
+		for (int numViews = 3; numViews <= 20; numViews++) {
+			System.out.println("numViews = "+numViews);
+			var db = new MockLookupSimilarImagesRealistic().setSeed(numViews).setFeatures(450).init(numViews,0.3,6.0,2);
 			PairwiseImageGraph2 graph = db.createPairwise();
 			assertTrue(alg.process(db,graph));
 			checkCameraMatrices(alg,db);
@@ -77,9 +84,9 @@ class TestProjectiveReconstructionFromPairwiseGraph {
 		for (int i = 0; i < listA.size(); i++) {
 			CommonOps_DDRM.mult(listA.get(i),H,found);
 			DMatrixRMaj expected = listB.get(i);
-			double scale = expected.get(0,0)/found.get(0,0);
+			double scale = MultiViewOps.findScale(found,expected);
 			CommonOps_DDRM.scale(scale,found);
-			double tol = CommonOps_DDRM.elementMaxAbs(found)*1e-5;
+			double tol = CommonOps_DDRM.elementMaxAbs(found)*1e-6; // TODO change to 1e-7
 			assertTrue(MatrixFeatures_DDRM.isIdentical(expected,found, tol));
 		}
 	}

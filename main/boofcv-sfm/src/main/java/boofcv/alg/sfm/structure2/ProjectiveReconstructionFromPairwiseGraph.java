@@ -126,11 +126,16 @@ public class ProjectiveReconstructionFromPairwiseGraph implements VerbosePrint {
 
 		if( verbose != null ) verbose.println("Selected seed.id="+info.seed.id+" common="+common.size);
 
+		// TODO build up a scene so that SBA can be run on the whole thing
 		if (!estimateInitialSceneFromSeed(db, info, common))
 			return false;
 
+		// TODO Constantly compute and apply H to fix the vanishing camera matrix problem as it converges towards
+		//      zero rapidly
+
 		expandScene(db);
 
+		// TODO compute features across all views for SBA
 		// NOTE: Could do one last bundle adjustment on the entire scene. not doing that here since it would
 		//       be a pain to code up since features need to be tracked across all the images and triangulated
 		// TODO Note that the scene should be properly scale first if this is done.

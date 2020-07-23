@@ -42,6 +42,7 @@ class TestProjectiveExpandByOneView {
 
 	@Test
 	void perfect() {
+		// TODO switch to new mock scene
 		var db = new MockLookupSimilarImages(5,0xDEADBEEF);
 		var alg = new ProjectiveExpandByOneView();
 
