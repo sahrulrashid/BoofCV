@@ -31,6 +31,7 @@ import boofcv.alg.sfm.structure2.SceneWorkingGraph.InlierInfo;
 import boofcv.factory.geo.ConfigTriangulation;
 import boofcv.factory.geo.FactoryMultiView;
 import boofcv.factory.geo.FactoryMultiViewRobust;
+import boofcv.misc.BoofMiscOps;
 import boofcv.misc.ConfigConverge;
 import boofcv.struct.feature.AssociatedIndex;
 import boofcv.struct.geo.AssociatedTriple;
@@ -81,6 +82,10 @@ public class PairwiseGraphUtils {
 
 	/** The three views used in three view algorithms */
 	public View seed, viewB, viewC;
+	/** Shape if each image */
+	public ImageDimension dimenA = new ImageDimension();
+	public ImageDimension dimenB = new ImageDimension();
+	public ImageDimension dimenC = new ImageDimension();
 
 	public final FastQueue<AssociatedTriple> matchesTriple = new FastQueue<>(AssociatedTriple::new);
 	/** Inliers from robust fitting of trifocal tensor */
@@ -228,10 +233,20 @@ public class PairwiseGraphUtils {
 	 * Convert triple from indexes into coordinates
 	 */
 	public void createTripleFromCommon() {
+		// Shape of each input image
+		db.lookupShape(seed.id, dimenA);
+		db.lookupShape(viewB.id,dimenB);
+		db.lookupShape(viewC.id,dimenC);
+
 		// Get coordinates of features in each view
 		db.lookupPixelFeats(seed.id,featsA);
 		db.lookupPixelFeats(viewB.id,featsB);
 		db.lookupPixelFeats(viewC.id,featsC);
+
+		// Make the pixels zero centered
+		BoofMiscOps.offsetPixels(featsA.toList(),-dimenA.width/2, -dimenA.height/2);
+		BoofMiscOps.offsetPixels(featsB.toList(),-dimenB.width/2, -dimenB.height/2);
+		BoofMiscOps.offsetPixels(featsC.toList(),-dimenC.width/2, -dimenC.height/2);
 
 		// pre-declare memory
 		matchesTriple.reset();
@@ -246,6 +261,7 @@ public class PairwiseGraphUtils {
 			matchesTriple.get(i).set(featsA.get(indexA),featsB.get(indexB),featsC.get(indexC));
 		}
 	}
+
 
 	/**
 	 * Robustly estimates the trifocal tensor and extracts canonical camera matrices

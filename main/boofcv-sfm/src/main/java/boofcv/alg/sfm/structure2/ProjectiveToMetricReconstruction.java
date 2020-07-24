@@ -38,7 +38,6 @@ import lombok.Getter;
 import org.ddogleg.struct.FastQueue;
 import org.ddogleg.struct.VerbosePrint;
 import org.ejml.data.DMatrixRMaj;
-import org.ejml.dense.row.CommonOps_DDRM;
 
 import javax.annotation.Nullable;
 import java.io.PrintStream;
@@ -176,17 +175,17 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 		// For self calibration pixel observations must have a principle point of (0,0) this is done by shifting
 		// all observation and camera matrices over by 1/2 the width and height
 		// C = [1 0 -w/2; 0 1 -h/2; 0 0 1]
-		var C = CommonOps_DDRM.identity(3);
+//		var C = CommonOps_DDRM.identity(3);
 		var P = new DMatrixRMaj(3,4);
 		graph.viewList.forEach(o->{
 			// Create a matrix which will make the projective camera matrix centered at the image's origin
 			// C*x = C*P*X
-			C.set(0,2,-o.pinhole.width/2);
-			C.set(1,2,-o.pinhole.height/2);
+//			C.set(0,2,-o.pinhole.width/2);
+//			C.set(1,2,-o.pinhole.height/2);
 			// Apply to the found projective camera matrix
-			CommonOps_DDRM.mult(C,o.projective,P);
+//			CommonOps_DDRM.mult(C,o.projective,P);
 			// Add it to the list. A copy is made internally so we can recycle P
-			selfCalib.addCameraMatrix(P);
+			selfCalib.addCameraMatrix(o.projective);
 		});
 
 		GeometricResult result = selfCalib.solve();

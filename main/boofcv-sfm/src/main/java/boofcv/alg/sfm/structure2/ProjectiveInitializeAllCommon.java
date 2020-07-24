@@ -22,6 +22,7 @@ import boofcv.abst.geo.bundle.SceneObservations;
 import boofcv.abst.geo.bundle.SceneStructureProjective;
 import boofcv.alg.sfm.structure2.PairwiseImageGraph2.Motion;
 import boofcv.alg.sfm.structure2.PairwiseImageGraph2.View;
+import boofcv.misc.BoofMiscOps;
 import boofcv.struct.feature.AssociatedIndex;
 import boofcv.struct.geo.AssociatedPair;
 import boofcv.struct.geo.AssociatedTriple;
@@ -61,6 +62,7 @@ import static boofcv.misc.BoofMiscOps.assertBoof;
  *
  * @author Peter Abeles
  */
+@SuppressWarnings("IntegerDivisionInFloatingPointContext")
 public class ProjectiveInitializeAllCommon implements VerbosePrint {
 
 	/** Common algorithms for reconstructing the projective scene */
@@ -324,7 +326,9 @@ public class ProjectiveInitializeAllCommon implements VerbosePrint {
 			View viewI = edge.other(seed);
 
 			// Lookup pixel locations of features in the connected view
+			db.lookupShape(viewI.id, utils.dimenB);
 			db.lookupPixelFeats(viewI.id,utils.featsB);
+			BoofMiscOps.offsetPixels(utils.featsB.toList(),-utils.dimenB.width/2, -utils.dimenB.height/2);
 
 			if ( !computeCameraMatrix(seed, edge,utils.featsB,cameraMatrix) ) {
 				if( verbose != null ) verbose.println("Pose estimator failed! view='"+viewI.id+"'");
@@ -410,7 +414,10 @@ public class ProjectiveInitializeAllCommon implements VerbosePrint {
 			Motion m = utils.seed.connections.get(seedConnIdx.get(motionIdx));
 			View v = m.other(utils.seed);
 			boolean seedIsSrc = m.src == utils.seed;
+			utils.db.lookupShape(v.id, utils.dimenB);
 			utils.db.lookupPixelFeats(v.id,utils.featsB);
+			BoofMiscOps.offsetPixels(utils.featsB.toList(), -utils.dimenB.width/2, -utils.dimenB.height/2);
+
 			for (int epipolarInlierIdx = 0; epipolarInlierIdx < m.inliers.size; epipolarInlierIdx++) {
 				AssociatedIndex a = m.inliers.get(epipolarInlierIdx);
 				// See if the feature is one of inliers computed from 3-view RANSAC

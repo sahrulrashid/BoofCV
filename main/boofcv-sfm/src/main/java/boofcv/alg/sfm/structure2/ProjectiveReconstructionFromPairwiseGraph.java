@@ -118,6 +118,9 @@ public class ProjectiveReconstructionFromPairwiseGraph implements VerbosePrint {
 		// For now we are keeping this very simple. Only a single seed is considered
 		SeedInfo info = seeds.get(0);
 
+		// TODO redo every component to use shifted pixels
+		// TODO redo every component to use scaled pixels
+
 		// Find the common features
 		GrowQueue_I32 common = utils.findCommonFeatures(info.seed,info.motions);
 		if( common.size < 6 ) // if less than the minimum it will fail
@@ -129,8 +132,7 @@ public class ProjectiveReconstructionFromPairwiseGraph implements VerbosePrint {
 		if (!estimateInitialSceneFromSeed(db, info, common))
 			return false;
 
-		// TODO Constantly compute and apply H to fix the vanishing camera matrix problem as it converges towards
-		//      zero rapidly
+		// NOTE: Computing H to scale camera matrices didn't prevent them from vanishing
 
 		expandScene(db);
 

@@ -68,12 +68,22 @@ class TestProjectiveReconstructionFromPairwiseGraph {
 		List<SceneWorkingGraph.View> foundViews = alg.workGraph.getAllViews();
 		assertEquals(db.views.size(), foundViews.size());
 
+		// Undo apply and undo the shift in pixel coordinates
+		DMatrixRMaj M_inv = CommonOps_DDRM.identity(3);
+		M_inv.set(0,2,db.intrinsic.width/2);
+		M_inv.set(1,2,db.intrinsic.height/2);
+
+		var tmp = new DMatrixRMaj(3,4);
+
 		CompatibleProjectiveHomography compatible = new CompatibleProjectiveHomography();
 		List<DMatrixRMaj> listA = new ArrayList<>();
 		List<DMatrixRMaj> listB = new ArrayList<>();
 
 		for( MockLookupSimilarImagesRealistic.View mv : db.views ) {
-			listA.add( alg.workGraph.lookupView( mv.id ).projective);
+			DMatrixRMaj found = alg.workGraph.lookupView( mv.id ).projective;
+//			found.print();
+			CommonOps_DDRM.mult(M_inv,found, tmp);
+			listA.add( tmp.copy() );
 			listB.add( mv.camera );
 		}
 

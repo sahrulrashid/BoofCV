@@ -51,8 +51,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class TestProjectiveInitializeAllCommon {
 
-	final static double reprojectionTol = 1e-7;
-	final static double matrixTol = 1e-7;
+	final static double reprojectionTol = 1e-5;
+	final static double matrixTol = 1e-4;
 
 	Random rand = BoofTesting.createRandom(3);
 
@@ -61,8 +61,12 @@ class TestProjectiveInitializeAllCommon {
 	 */
 	@Test
 	void perfect_connections_2() {
+
+		// NOTES: Using regular pixels maxed out at 12
+		//        With zero centering maxed out at 14
+
 		var alg = new ProjectiveInitializeAllCommon();
-		alg.utils.sba.setVerbose(System.out,null);
+//		alg.utils.sba.setVerbose(System.out,null);
 
 		for (int seedIdx = 0; seedIdx < 3; seedIdx++) {
 			var db = new MockLookupSimilarImagesRealistic().pathCircle(4,2);
@@ -291,6 +295,9 @@ class TestProjectiveInitializeAllCommon {
 				// Project this feature to the camera
 				DMatrixRMaj P = structure.views.get(viewIdx).worldToView;
 				PerspectiveOps.renderPixel(P,X,found);
+				// undo the offset
+				found.x += db.intrinsic.width/2;
+				found.y += db.intrinsic.height/2;
 
 				// Lookup the expected pixel location
 				// The seed feature ID and the ground truth feature ID are the same
@@ -310,10 +317,17 @@ class TestProjectiveInitializeAllCommon {
 		List<DMatrixRMaj> listA = new ArrayList<>();
 		List<DMatrixRMaj> listB = new ArrayList<>();
 
+		// Undo the shift in pixel coordinates
+		DMatrixRMaj M = CommonOps_DDRM.identity(3);
+		M.set(0,2,db.intrinsic.width/2);
+		M.set(1,2,db.intrinsic.height/2);
+
 		List<String> viewIds = BoofMiscOps.collectList(db.views,v->v.id);
 		for (int i = 0; i < 3; i++) {
 			View view = alg.getPairwiseGraphViewByStructureIndex(i);
-			listA.add(alg.utils.structure.views.get(i).worldToView);
+			DMatrixRMaj P = new DMatrixRMaj(3,4);
+			CommonOps_DDRM.mult(M,alg.utils.structure.views.get(i).worldToView,P);
+			listA.add(P);
 			int viewDbIdx = viewIds.indexOf(view.id);
 			listB.add(db.views.get(viewDbIdx).camera);
 		}
