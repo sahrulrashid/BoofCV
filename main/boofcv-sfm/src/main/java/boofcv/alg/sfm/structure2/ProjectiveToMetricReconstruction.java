@@ -244,6 +244,9 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 		if( verbose != null ) verbose.println("ENTER create features");
 		graph.features.clear();
 
+		// Storage for triangulated point
+		var triangulatedPt = new Point3D_F64();
+
 		for( SceneWorkingGraph.View target_v : graph.views.values() ) {
 			// if there are no inliers saved with this view skip it.
 			if( target_v.projectiveInliers.isEmpty() )
@@ -285,11 +288,12 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 				if( feature == null ) {
 					// Create a new feature since none exist for any of these observation
 					feature = graph.createFeature();
-					if( !triangulateFeature(inliers,inlierCnt,feature.location) ) {
+					if( !triangulateFeature(inliers,inlierCnt,triangulatedPt) ) {
 						// skip feature if triangulation fails
 						graph.features.remove(graph.features.size()-1);
 						continue;
 					}
+					feature.location.set(triangulatedPt.x,triangulatedPt.y,triangulatedPt.z,1.0);
 					for (int viewCnt = 0; viewCnt < numViews; viewCnt++) {
 						SceneWorkingGraph.View wview = graph.views.get( inliers.views.get(viewCnt).id );
 						createNewObservation(inliers, inlierCnt, feature, viewCnt, wview);
@@ -363,8 +367,8 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 	 *
 	 * @param info (Input) Information on the inlier set
 	 * @param featureIdx (Input) index of the feature in the inlier set which is to be triangulated
-	 * @param X (Outut) storage for the triangulated feature in world coordinates
-	 * @return true if succesful
+	 * @param X (output) storage for the triangulated feature in world coordinates
+	 * @return true if successful
 	 */
 	boolean triangulateFeature(SceneWorkingGraph.InlierInfo info, int featureIdx, Point3D_F64 X)
 	{
@@ -491,7 +495,7 @@ public class ProjectiveToMetricReconstruction implements VerbosePrint {
 
 		for (int featureCnt = 0; featureCnt < graph.features.size(); featureCnt++) {
 			SceneWorkingGraph.Feature f = graph.features.get(featureCnt);
-			structure.getPoints().get(featureCnt).get(f.location);
+			structure.getPoints().get(featureCnt).get3(f.location);
 		}
 	}
 

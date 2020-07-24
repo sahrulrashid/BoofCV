@@ -20,7 +20,7 @@ package boofcv.alg.sfm.structure2;
 
 import boofcv.struct.calib.CameraPinhole;
 import georegression.struct.point.Point2D_F64;
-import georegression.struct.point.Point3D_F64;
+import georegression.struct.point.Point4D_F64;
 import georegression.struct.se.Se3_F64;
 import gnu.trove.map.hash.TIntObjectHashMap;
 import org.ddogleg.struct.FastArray;
@@ -91,12 +91,12 @@ public class SceneWorkingGraph {
 	 */
 	public static class Feature {
 		// location in world coordinates
-		public final Point3D_F64 location = new Point3D_F64();
+		public final Point4D_F64 location = new Point4D_F64();
 		// which views it's visible in
 		public final List<Observation> observations = new ArrayList<>();
 
 		public void reset() {
-			location.set(Double.NaN,Double.NaN,Double.NaN);
+			location.set(Double.NaN,Double.NaN,Double.NaN,Double.NaN);
 			observations.clear();
 		}
 

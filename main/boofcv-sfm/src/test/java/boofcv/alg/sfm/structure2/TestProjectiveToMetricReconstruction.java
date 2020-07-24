@@ -34,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 
+import static boofcv.alg.geo.GeoTestingOps.isEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -147,8 +148,7 @@ public class TestProjectiveToMetricReconstruction {
 		// Since every feature is visible in every frame and the inlier was set was constructed so that index 'i' in
 		// the inlier set matches with feature 'i' this test will work
 		for (int featCnt = 0; featCnt < db.numFeatures; featCnt++) {
-			assertEquals(0.0,
-					working.features.get(featCnt).location.distance(db.feats3D.get(featCnt)),1e-7);
+			assertTrue(isEquals(db.feats3D.get(featCnt),working.features.get(featCnt).location,1e-7));
 			SceneWorkingGraph.Feature f = working.features.get(featCnt);
 			f.observations.forEach( o->assertSame(f,o.view.obs_to_feat.get(o.observationIdx)));
 		}
@@ -262,7 +262,7 @@ public class TestProjectiveToMetricReconstruction {
 		// create a very simple scene with all features at the origin and all visible
 		for (int featCnt = 0; featCnt < db.numFeatures; featCnt++) {
 			SceneWorkingGraph.Feature f = new SceneWorkingGraph.Feature();
-			f.location.set(0,0,0); // origin should be visible by all
+			f.location.set(0,0,0,1); // origin should be visible by all
 			for( SceneWorkingGraph.View v : working.views.values() ) {
 				SceneWorkingGraph.Observation o = new SceneWorkingGraph.Observation(v,featCnt);
 				f.observations.add(o);
