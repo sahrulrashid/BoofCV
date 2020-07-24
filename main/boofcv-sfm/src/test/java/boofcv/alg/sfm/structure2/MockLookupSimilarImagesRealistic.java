@@ -30,6 +30,7 @@ import georegression.struct.EulerType;
 import georegression.struct.point.Point2D_F64;
 import georegression.struct.point.Point3D_F64;
 import georegression.struct.se.Se3_F64;
+import georegression.struct.so.Rodrigues_F64;
 import org.ddogleg.struct.FastQueue;
 import org.ejml.data.DMatrixRMaj;
 
@@ -49,10 +50,10 @@ class MockLookupSimilarImagesRealistic implements LookupSimilarImages {
 	public CameraPinhole intrinsic = new CameraPinhole(400,410,0,420,420,800,800);
 	public int numFeatures = 100;
 	public Random rand = BoofTesting.createRandom(3);
+	public boolean loop = true;
 
 	List<Feature> points = new ArrayList<>();
 	List<View> views = new ArrayList<>();
-
 
 	public MockLookupSimilarImagesRealistic(){}
 
@@ -71,15 +72,12 @@ class MockLookupSimilarImagesRealistic implements LookupSimilarImages {
 		return this;
 	}
 
-	/**
-	 * Configures the scene
-	 *
-	 * @param numViews number of views to create
-	 * @param numViewConnect Specifies 1/2 the number of views each view will be connected to.
-	 */
-	public MockLookupSimilarImagesRealistic init(int numViews , double stepLength, double pathLength, int numViewConnect) {
-		DMatrixRMaj K = PerspectiveOps.pinholeToMatrix(intrinsic,(DMatrixRMaj)null);
+	public MockLookupSimilarImagesRealistic setLoop(boolean loop ) {
+		this.loop = loop;
+		return this;
+	}
 
+	public MockLookupSimilarImagesRealistic pathLine(int numViews , double stepLength, double pathLength, int numViewConnect) {
 		double r = 0.5;
 
 		for( Point3D_F64 X : UtilPoint3D_F64.random(new Point3D_F64(0, 0, 0), -r, pathLength+r,-r,r,-r,r, numFeatures, rand)) {
@@ -88,23 +86,76 @@ class MockLookupSimilarImagesRealistic implements LookupSimilarImages {
 			points.add(f);
 		}
 
+		List<Se3_F64> list_camera_to_world = new ArrayList<>();
+
+		for (int viewCnt = 0; viewCnt < numViews; viewCnt++) {
+			Se3_F64 camera_to_world = new Se3_F64();
+
+			// Move the camera down the x-axis and push back enough to see most of the points
+			camera_to_world.T.x = stepLength*viewCnt;
+			camera_to_world.T.y = rand.nextGaussian() * 0.05;
+			camera_to_world.T.z = rand.nextGaussian() * 0.05 - 2 * r;
+
+			// Point camera towards the cloud of points
+			double noiseRotX = rand.nextGaussian() * 0.01;
+			double noiseRotY = rand.nextGaussian() * 0.01;
+			double noiseRotZ = rand.nextGaussian() * 0.01;
+			ConvertRotation3D_F64.eulerToMatrix(EulerType.XYZ, noiseRotX, noiseRotY, noiseRotZ, camera_to_world.R);
+			list_camera_to_world.add( camera_to_world );
+		}
+
+		generate(list_camera_to_world,numViewConnect);
+		return this;
+	}
+
+	public MockLookupSimilarImagesRealistic pathCircle(int numViews , int numViewConnect) {
+		// Radius of the cameras circling the origin
+		double pathRadius = 2;
+
+		for( Point3D_F64 X : UtilPoint3D_F64.random(new Point3D_F64(0, 0, 0), -0.5, 0.5, numFeatures, rand)) {
+			Feature f = new Feature();
+			f.world.set(X);
+			points.add(f);
+		}
+
+		List<Se3_F64> list_camera_to_world = new ArrayList<>();
+
+		for (int viewCnt = 0; viewCnt < numViews; viewCnt++) {
+			Se3_F64 camera_to_world = new Se3_F64();
+
+			double yaw = 2.0*Math.PI*viewCnt/numViews;
+
+			// camera lie on the (X,Z) plane with +y pointed down.
+			// This is done to make the camera coordinate system and the world coordinate system have a more close
+			// relationship
+			camera_to_world.T.x = Math.cos(yaw)*pathRadius;
+			camera_to_world.T.y = rand.nextGaussian()*pathRadius*0.1; // geometric diversity for self calibration
+			camera_to_world.T.z = Math.sin(yaw)*pathRadius;
+
+			// camera is pointing in the opposite direction of it's world location
+			ConvertRotation3D_F64.rodriguesToMatrix(new Rodrigues_F64(yaw+Math.PI/2,0,-1,0),camera_to_world.R);
+
+			list_camera_to_world.add( camera_to_world );
+		}
+
+		generate(list_camera_to_world,numViewConnect);
+		return this;
+	}
+
+	/**
+	 * Renders the scene using only ready generated points and image coordinates
+	 */
+	public MockLookupSimilarImagesRealistic generate(List<Se3_F64> list_camera_to_world, int numViewConnect) {
+		DMatrixRMaj K = PerspectiveOps.pinholeToMatrix(intrinsic,(DMatrixRMaj)null);
+
+		int numViews = list_camera_to_world.size();
+
 		// render pixel coordinates of all points
 		for (int viewCnt = 0; viewCnt < numViews; viewCnt++) {
 			View v = new View();
 			v.id = "" + viewCnt;
 
-			Se3_F64 camera_to_world = new Se3_F64();
-
-			// Move the camera down the x-axis and push back enough to see most of the points
-			camera_to_world.T.x = stepLength*viewCnt;
-			camera_to_world.T.y = rand.nextGaussian() * 0.1;
-			camera_to_world.T.z = rand.nextGaussian() * 0.1 - 2 * r;
-
-			// Point camera towards the cloud of points
-			double noiseRotX = rand.nextGaussian() * 0.02;
-			double noiseRotY = rand.nextGaussian() * 0.02;
-			double noiseRotZ = rand.nextGaussian() * 0.02;
-			ConvertRotation3D_F64.eulerToMatrix(EulerType.XYZ, noiseRotX, noiseRotY, noiseRotZ, camera_to_world.R);
+			Se3_F64 camera_to_world = list_camera_to_world.get(viewCnt);
 			camera_to_world.invert(v.world_to_view);
 
 			v.camera = PerspectiveOps.createCameraMatrix(v.world_to_view.R, v.world_to_view.T, K, null);
@@ -137,11 +188,19 @@ class MockLookupSimilarImagesRealistic implements LookupSimilarImages {
 			View a = views.get(idx0);
 			for (int offset = 1; offset <= numViewConnect; offset++) {
 				int idx1 = idx0+offset;
-				if( idx1 >= views.size() )
-					break;
+				// when wrapping be careful to not connect to the same node twice
+				if( idx1 >= views.size() ) {
+					if( !loop )
+						continue;
+					idx1 %= views.size();
+					if( idx1+numViewConnect >= idx0 )
+						continue;
+				}
 				View b = views.get(idx1);
-				if( a.fractionOverlap(b) < 0.5 )
+				if( a.fractionOverlap(b) < 0.5 ) {
+//					System.out.println("REJECT "+idx0+" <-> "+idx1+" Fraction Overlap: "+a.fractionOverlap(b));
 					continue;
+				}
 //				System.out.println(idx0+" <-> "+idx1+" Fraction Overlap: "+a.fractionOverlap(b));
 				a.connected.add(b);
 				b.connected.add(a);
@@ -267,11 +326,11 @@ class MockLookupSimilarImagesRealistic implements LookupSimilarImages {
 		return null;
 	}
 
-	private static class Feature {
+	static class Feature {
 		public Point3D_F64 world = new Point3D_F64();
 	}
 
-	public static class Observation {
+	static class Observation {
 		public Feature feature;
 		public Point2D_F64 pixel = new Point2D_F64();
 	}

@@ -52,6 +52,7 @@ public class TestProjectiveToMetricReconstruction {
 	 */
 	@Test
 	void process_almost_perfect_scene() {
+		// TODO udpate to new mock
 		var db = new MockLookupSimilarImagesCircleAround().setIntrinsic(intrinsic).init(10,1);
 		ProjectiveToMetricReconstruction alg = createAlg();
 
@@ -177,7 +178,7 @@ public class TestProjectiveToMetricReconstruction {
 		alg.initialize(db,working);
 
 		// Pick a view and a couple of other views it's connected to
-		SceneWorkingGraph.View v0 = alg.graph.viewList.get(0);
+		SceneWorkingGraph.View v0 = alg.graph.viewList.get(1);
 		SceneWorkingGraph.View v1 = working.lookupView(v0.pview.connections.get(0).other(v0.pview).id);
 		SceneWorkingGraph.View v2 = working.lookupView(v0.pview.connections.get(1).other(v0.pview).id);
 

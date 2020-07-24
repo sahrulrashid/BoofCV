@@ -62,7 +62,6 @@ public class ProjectiveReconstructionFromPairwiseGraph implements VerbosePrint {
 
 	/** Contains the found projective scene */
 	public final @Getter SceneWorkingGraph workGraph = new SceneWorkingGraph();
-
 	/** Computes the initial scene from the seed and some of it's neighbors */
 	private final @Getter ProjectiveInitializeAllCommon initProjective;
 	/** Adds a new view to an existing projective scene */
@@ -249,8 +248,8 @@ public class ProjectiveReconstructionFromPairwiseGraph implements VerbosePrint {
 	}
 
 	/**
-	 * Selects next View to process based on the score of it's known connections. At least two connections is preferred
-	 * and the score is based on the worst score of the two connections.
+	 * Selects next View to process based on the score of it's known connections. Two connections which both
+	 * connect to each other is required.
 	 */
 	View selectNextToProcess( FastArray<View> open ) {
 		int bestIdx = -1;
@@ -290,9 +289,11 @@ public class ProjectiveReconstructionFromPairwiseGraph implements VerbosePrint {
 				}
 			}
 
+//			System.out.println("view.id="+pview.id+"  valid.size"+valid.size()+" score="+bestLocalScore);
+
 			// strongly prefer 3 or more. Technically the above test won't check for this but in the future it will
 			// so this test serves as a reminder
-			if( Math.min(3,valid.size()) >= bestValidCount && bestLocalScore > 0.0 ) {
+			if( Math.min(3,valid.size()) >= bestValidCount && bestLocalScore > bestScore ) {
 				bestValidCount = Math.min(3,valid.size());
 				bestScore = bestLocalScore;
 				bestIdx = openIdx;
