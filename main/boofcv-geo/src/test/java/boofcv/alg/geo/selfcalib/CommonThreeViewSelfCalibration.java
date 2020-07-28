@@ -40,19 +40,19 @@ import static georegression.struct.se.SpecialEuclideanOps_F64.eulerXyz;
  * @author Peter Abeles
  */
 public class CommonThreeViewSelfCalibration {
-	Random rand = BoofTesting.createRandom(6);
-	CameraPinhole cameraA;
-	CameraPinhole cameraB;
-	CameraPinhole cameraC;
+	protected Random rand = BoofTesting.createRandom(6);
+	protected CameraPinhole cameraA;
+	protected CameraPinhole cameraB;
+	protected CameraPinhole cameraC;
 
-	int numFeatures = 100;
+	protected int numFeatures = 100;
 
-	List<Se3_F64> list_world_to_cameras;
-	List<Point3D_F64> cloud;
-	List<AssociatedTriple> observations;
-	List<DMatrixRMaj> projective;
+	protected List<Se3_F64> list_world_to_cameras;
+	protected List<Point3D_F64> cloud;
+	protected List<AssociatedTriple> observations;
+	protected List<DMatrixRMaj> projective;
 
-	TrifocalTensor tensor = new TrifocalTensor();
+	protected TrifocalTensor tensor = new TrifocalTensor();
 
 	protected void standardScene() {
 		cameraA = new CameraPinhole(600,600,0.1,400,410,800,600);
@@ -85,7 +85,7 @@ public class CommonThreeViewSelfCalibration {
 		observations = new ArrayList<>();
 		projective = new ArrayList<>();
 
-		cloud = UtilPoint3D_F64.random(-1,-1,numFeatures,rand);
+		cloud = UtilPoint3D_F64.random(-1,1,numFeatures,rand);
 
 		BoofMiscOps.forIdx(list_world_to_cameras,(idx,world_to_camera)->{
 			DMatrixRMaj K = PerspectiveOps.pinholeToMatrix(cameras.get(idx),(DMatrixRMaj)null);

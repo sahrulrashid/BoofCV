@@ -106,8 +106,8 @@ class TestTrifocalToCalibratingHomography extends CommonThreeViewSelfCalibration
 		MultiViewOps.projectiveToMetric(alg.P3, H, found_1_to_3, foundK3);
 
 		assertEquals(1.0,found_1_to_2.T.norm(),1e-4);
-		BoofTesting.assertEqualsToScale(truthView_1_to_i(1),found_1_to_2,0.01,1e-4);
-		BoofTesting.assertEqualsToScale(truthView_1_to_i(2),found_1_to_3,0.01,1e-4);
+		BoofTesting.assertEqualsToScaleS(truthView_1_to_i(1),found_1_to_2,0.01,1e-4);
+		BoofTesting.assertEqualsToScaleS(truthView_1_to_i(2),found_1_to_3,0.01,1e-4);
 
 		assertTrue(MatrixFeatures_DDRM.isIdentical(K2, foundK2, UtilEjml.TEST_F64));
 		assertTrue(MatrixFeatures_DDRM.isIdentical(K3, foundK3, UtilEjml.TEST_F64));
@@ -199,8 +199,8 @@ class TestTrifocalToCalibratingHomography extends CommonThreeViewSelfCalibration
 		MultiViewOps.projectiveToMetric(alg.P3, H, found_1_to_3, K3);
 
 		assertEquals(1.0,found_1_to_2.T.norm(),1e-4);
-		BoofTesting.assertEqualsToScale(truthView_1_to_i(1),found_1_to_2,0.01,1e-4);
-		BoofTesting.assertEqualsToScale(truthView_1_to_i(2),found_1_to_3,0.01,1e-4);
+		BoofTesting.assertEqualsToScaleS(truthView_1_to_i(1),found_1_to_2,0.01,1e-4);
+		BoofTesting.assertEqualsToScaleS(truthView_1_to_i(2),found_1_to_3,0.01,1e-4);
 		assertTrue(MatrixFeatures_DDRM.isIdentical(K, K2, UtilEjml.TEST_F64));
 		assertTrue(MatrixFeatures_DDRM.isIdentical(K, K3, UtilEjml.TEST_F64));
 	}

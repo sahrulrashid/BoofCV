@@ -20,6 +20,7 @@ package boofcv.alg.geo.selfcalib;
 
 import boofcv.alg.geo.GeometricResult;
 import boofcv.alg.geo.MultiViewOps;
+import boofcv.struct.calib.CameraPinhole;
 import org.ddogleg.struct.FastAccess;
 import org.ddogleg.struct.FastQueue;
 import org.ejml.UtilEjml;
@@ -357,5 +358,14 @@ public class SelfCalibrationLinearDualQuadratic extends SelfCalibrationBase {
 
 	public static class Intrinsic {
 		public double fx,fy,skew;
+
+		/** Copies the values into this class in to the more generalized {@link boofcv.struct.calib.CameraPinhole} */
+		public void copyTo(CameraPinhole pinhole ) {
+			pinhole.fx = fx;
+			pinhole.fy = fy;
+			pinhole.skew = skew;
+			pinhole.cx = 0;
+			pinhole.cy = 0;
+		}
 	}
 }

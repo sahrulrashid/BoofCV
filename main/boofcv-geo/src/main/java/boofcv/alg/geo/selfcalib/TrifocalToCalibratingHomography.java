@@ -160,6 +160,9 @@ public class TrifocalToCalibratingHomography {
 	 */
 	public boolean process(DMatrixRMaj K1 , DMatrixRMaj K2 , List<AssociatedTriple> observations )
 	{
+		// TODO try to improve numerics by reducing the scale of K1 and K2 to 0 to 1.0 for diagonal elements
+		//      then undo it
+
 		bestSolutionIdx = -1;
 		// Using the provided calibration matrices, extract potential camera motions
 		MultiViewOps.fundamentalToEssential(F21,K1,K2,E21);
@@ -306,7 +309,10 @@ public class TrifocalToCalibratingHomography {
 								List<AssociatedTriple> observations) {
 		PerspectiveOps.matrixToPinhole(K1,0,0,intrinsic1);
 		PerspectiveOps.matrixToPinhole(K2,0,0,intrinsic2);
-		MultiViewOps.projectiveToMetricKnownK(P2,H,K2,view_1_to_2);
+
+//		MultiViewOps.projectiveToMetricKnownK(P2,H,K2,view_1_to_2); <-- NOT NOT USE THIS VARIANT! Loses common scale
+		if( !MultiViewOps.projectiveToMetric(P2,H,view_1_to_2,K3) ) // K3 is used as a dummy output since K2 is known
+			return Double.MAX_VALUE;
 		if( !MultiViewOps.projectiveToMetric(P3,H,view_1_to_3,K3) )
 			return Double.MAX_VALUE;
 		PerspectiveOps.matrixToPinhole(K3,0,0,intrinsic3);
@@ -317,8 +323,8 @@ public class TrifocalToCalibratingHomography {
 		// the sign can get messed up by H
 		if( view_1_to_2e.T.distance(view_1_to_2.T) > 1.0 ) {
 			scale *= -1;
-			view_1_to_2.set(view_1_to_2e);
 		}
+		view_1_to_2.set(view_1_to_2e);
 		view_1_to_3.T.divide(scale);
 
 		// Fix the rectifying homography so that the translation vector has a scale of 1 an is pointing in the right

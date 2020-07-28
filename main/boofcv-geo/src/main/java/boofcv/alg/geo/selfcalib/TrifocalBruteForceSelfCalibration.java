@@ -170,7 +170,7 @@ public class TrifocalBruteForceSelfCalibration implements VerbosePrint {
 
 				double error = calibrator.bestError;
 				if( verbose != null )
-					verbose.printf("[%3d,%3d] f1=%5.2f f2=%5.2f score=%f invalid=%d\n",idxA,idxB,focalA,focalB,error,calibrator.bestInvalid);
+					verbose.printf("[%3d,%3d] f1=%5.2f f2=%5.2f error=%f invalid=%d\n",idxA,idxB,focalA,focalB,error,calibrator.bestInvalid);
 				if( error < bestError ) {
 					isLimit = idxA == 0 || idxA == numberOfSamples-1;
 					isLimit |= idxB == 0 || idxB == numberOfSamples-1;
@@ -202,7 +202,7 @@ public class TrifocalBruteForceSelfCalibration implements VerbosePrint {
 
 			double error = calibrator.bestError;
 			if( verbose != null )
-				verbose.printf("[%3d] f=%5.2f score=%f invalid=%d\n", idxA, focalA, error, calibrator.bestInvalid);
+				verbose.printf("[%3d] f=%5.2f error=%f invalid=%d\n", idxA, focalA, error, calibrator.bestInvalid);
 
 			if( error < bestError ) {
 				isLimit = idxA == 0 || idxA == numberOfSamples-1;
