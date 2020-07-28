@@ -18,15 +18,29 @@
 
 package boofcv.alg.geo.selfcalib;
 
+import boofcv.abst.geo.Triangulate2ViewsMetric;
 import boofcv.alg.geo.MultiViewOps;
+import boofcv.alg.geo.PerspectiveOps;
+import boofcv.factory.geo.FactoryMultiView;
 import boofcv.struct.calib.CameraPinhole;
+import boofcv.struct.geo.AssociatedTriple;
+import georegression.struct.point.Point2D_F64;
+import georegression.struct.point.Point3D_F64;
 import georegression.struct.point.Vector3D_F64;
+import georegression.struct.se.Se3_F64;
+import georegression.transform.se.SePointOps_F64;
+import lombok.Getter;
+import lombok.Setter;
 import org.ddogleg.struct.FastQueue;
+import org.ddogleg.struct.VerbosePrint;
 import org.ejml.data.DMatrixRMaj;
 import org.ejml.dense.row.CommonOps_DDRM;
 
+import javax.annotation.Nullable;
 import java.io.PrintStream;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 /**
  * <p>
@@ -63,86 +77,63 @@ import java.util.List;
  *
  * @author Peter Abeles
  */
-public class SelfCalibrationGuessAndCheckFocus {
-
-	// Development Note
-	// There was an attempt to modify this to use reprojection error like TrifocalBruteForceSelfCalibration to select
-	// the best hypothesis. It didn't work very well. The likely cause is that the camera motion estimate from
-	// the rectifying homography was poor.
-
-	// storage for internally normalized camera matrices
-	FastQueue<DMatrixRMaj> normalizedP;
+public class SelfCalibrationGuessAndCheckFocusV2 implements VerbosePrint {
 
 	// used to estimate the plane at infinity
 	EstimatePlaneAtInfinityGivenK estimatePlaneInf = new EstimatePlaneAtInfinityGivenK();
 	Vector3D_F64 planeInf = new Vector3D_F64();
 
 	// if true the first two cameras are assumed to have the same or approximately the same focus length
-	boolean sameFocus;
+	private @Getter @Setter boolean sameFocus = true;
 
 	// intrinsic camera calibration matrix for view 1
 	DMatrixRMaj K1 = new DMatrixRMaj(3,3);
 
 	// Work space for view 1 projective matrix
 	DMatrixRMaj P1 = new DMatrixRMaj(3,4);
-	DMatrixRMaj tmpP = new DMatrixRMaj(3,4);
+	DMatrixRMaj P2 = new DMatrixRMaj(3,4);
+	DMatrixRMaj P3 = new DMatrixRMaj(3,4);
+
+	CameraPinhole intrinsic1 = new CameraPinhole();
+	CameraPinhole intrinsic2 = new CameraPinhole();
+	CameraPinhole intrinsic3 = new CameraPinhole();
+
+	@Getter double bestFocus1, bestFocus2;
+
+	Se3_F64 view_1_to_1 = new Se3_F64();
+	Se3_F64 view_1_to_2 = new Se3_F64();
+	Se3_F64 view_1_to_3 = new Se3_F64();
+
+	DMatrixRMaj K = new DMatrixRMaj(3,3);
 
 	// projective to metric homography
 	DMatrixRMaj H = new DMatrixRMaj(4,4);
 	DMatrixRMaj bestH = new DMatrixRMaj(4,4);
 
 	// Absolute dual quadratic
-	DMatrixRMaj Q = new DMatrixRMaj(4,4);
-
-	// camera normalization matrices
-	DMatrixRMaj V = new DMatrixRMaj(3,3);
-	DMatrixRMaj Vinv = new DMatrixRMaj(3,3);
+//	DMatrixRMaj Q = new DMatrixRMaj(4,4);
 
 	// Defines which focus lengths are sampled based on a log scale
 	// Note that image has been normalized and 1.0 = focal length of image diagonal
 	double sampleMin=0.3,sampleMax=3;
 	int numSamples=50;
-	double scores[] = new double[numSamples];
-
-	// Weights for score function
-	double w_sk = 1.0/0.01; // zero skew
-	double w_ar = 1.0/0.2;  // aspect ratio
-	double w_uo = 1.0/0.1;  // zero principle point
-
-	CameraPinhole intrinsic = new CameraPinhole();
+	double[] errors = new double[numSamples];
+	double[] errors1 = new double[numSamples];
+	double[] errors2 = new double[numSamples];
 
 	DMatrixRMaj tmp = new DMatrixRMaj(3,3);
 
 	// Is the best score at a local minimum? If not that means it probably diverged
 	boolean localMinimum;
 
+	int foundInvalid = 0;
+
 	// if not null debug info is printed
 	PrintStream verbose;
 
-	public SelfCalibrationGuessAndCheckFocus() {
-		normalizedP = new FastQueue<>(()->new DMatrixRMaj(3,4));
-	}
-
-	/**
-	 * Specifies known portions of camera intrinsic parameters
-	 * @param skew skew
-	 * @param cx image center x
-	 * @param cy image center y
-	 * @param width Image width
-	 * @param height Image height
-	 */
-	public void setCamera( double skew , double cx , double cy , int width , int height ) {
-
-		// Define normalization matrix
-		// center points, remove skew, scale coordinates
-		double d = Math.sqrt(width*width + height*height);
-		V.zero();
-		V.set(0,0,d/2); V.set(0,1,skew); V.set(0,2,cx);
-		V.set(1,1,d/2); V.set(1,2,cy);
-		V.set(2,2,1);
-
-		CommonOps_DDRM.invert(V,Vinv);
-	}
+	// reference to input parameter. Observed pixel associations
+	List<AssociatedTriple> matchesPixels;
+	FastQueue<AssociatedTriple> matchesNorm = new FastQueue<>(AssociatedTriple::new);
 
 	/**
 	 * Specifies how focal lengths are sampled on a log scale. Remember 1.0 = nominal length
@@ -155,53 +146,36 @@ public class SelfCalibrationGuessAndCheckFocus {
 		this.sampleMin = min;
 		this.sampleMax = max;
 		this.numSamples = total;
-		this.scores = new double[numSamples];
+		this.errors = new double[numSamples];
 	}
 
-	/**
-	 * Computes the best rectifying homography given the set of camera matrices. Must call {@link #setCamera} first.
-	 *
-	 * @param cameraMatrices camera matrices for view 2 and beyond. view 1 is implicit and assumed to be P = [I|0]
-	 * @return true if successful or false if it fails
-	 */
-	public boolean process(List<DMatrixRMaj> cameraMatrices) {
-		if( cameraMatrices.size() == 0 )
-			throw new IllegalArgumentException("Must contain at least 1 matrix");
+	public boolean process(DMatrixRMaj camera1, DMatrixRMaj camera2, DMatrixRMaj camera3, List<AssociatedTriple> matches ) {
+		this.P1.set(camera1);
+		this.P2.set(camera2);
+		this.P3.set(camera3);
 
-		// Apply normalization as suggested in the paper, then force the first camera matrix to be [I|0] again
-		CommonOps_DDRM.setIdentity(tmpP);
-		CommonOps_DDRM.mult(Vinv,tmpP,P1);
+		this.matchesPixels = matches;
+
+		// Force the first camera to be identity
 		MultiViewOps.projectiveToIdentityH(P1,H);
+		CommonOps_DDRM.mult(P1,H,tmp); P1.set(tmp);
+		CommonOps_DDRM.mult(P2,H,tmp); P2.set(tmp);
+		CommonOps_DDRM.mult(P3,H,tmp); P3.set(tmp);
 
-		// P = inv(V)*P/||P(2,0:2)||
-		this.normalizedP.reset();
-		for (int i = 0; i < cameraMatrices.size(); i++) {
-			DMatrixRMaj A = cameraMatrices.get(i);
-
-			DMatrixRMaj Pi = normalizedP.grow();
-			CommonOps_DDRM.mult(Vinv,A,tmpP);
-			CommonOps_DDRM.mult(tmpP,H,Pi);
-			double a0 = Pi.get(2,0);
-			double a1 = Pi.get(2,1);
-			double a2 = Pi.get(2,2);
-			double scale = Math.sqrt(a0*a0 + a1*a1 + a2*a2);
-			CommonOps_DDRM.scale(1.0/scale,Pi);
-		}
+//		P1.print();
+//		P2.print();
 
 		// Find the best combinations of focal lengths
 		double bestScore;
 		if( sameFocus ) {
-			bestScore = findBestFocusOne(normalizedP.get(0));
+			bestScore = findBestFocusOne(P2);
 		} else {
-			bestScore = findBestFocusTwo(normalizedP.get(0));
+			bestScore = findBestFocusTwo(P2);
 		}
 
-		// undo normalization
-		CommonOps_DDRM.extract(bestH,0,0,tmp);
-		CommonOps_DDRM.mult(V,tmp, K1);
-		CommonOps_DDRM.insert(K1,bestH,0,0);
+		bestH.print();
 
-		// if it's not at a local minimum it almost definately failed
+		// if it's not at a local minimum it almost certainly failed
 		return bestScore != Double.MAX_VALUE && localMinimum;
 	}
 
@@ -210,85 +184,107 @@ public class SelfCalibrationGuessAndCheckFocus {
 
 		// coeffients for linear to log scale
 		double b = Math.log(sampleMax/sampleMin)/(numSamples-1);
-		double bestScore = Double.MAX_VALUE;
+		double bestError = Double.MAX_VALUE;
 		int bestIndex = -1;
 
 		for (int i = 0; i < numSamples; i++) {
-			double f =sampleMin*Math.exp(b*i);
+			double f = sampleMin*Math.exp(b*i)*800;
 
 			if( !computeRectifyH(f,f,P2,H)) {
-				scores[i] = Double.NaN;
+				errors[i] = Double.NaN;
 				continue;
 			}
-			MultiViewOps.rectifyHToAbsoluteQuadratic(H,Q);
+//			MultiViewOps.rectifyHToAbsoluteQuadratic(H,Q);
 
-			double score = scoreResults();
-			scores[i] = score;
+			double error = computeError();
+			errors[i] = error;
 
-			if( score < bestScore ) {
-				bestScore = score;
+			if( error < bestError ) {
+				bestError = error;
 				bestH.set(H);
 				bestIndex = i;
+				bestFocus1 = f;
+				bestFocus2 = f;
 			}
 
 			if( verbose != null ) {
-				verbose.printf("[%3d] f=%5.2f score=%f\n",i,f,score);
+				verbose.printf("[%3d] f=%5.2f score=%f invalid=%d\n",i,f,error,foundInvalid);
 			}
 		}
 
 		if (bestIndex > 0 && bestIndex < numSamples - 1) {
-			localMinimum = bestScore < scores[bestIndex - 1] && bestScore < scores[bestIndex + 1];
+			localMinimum = bestError < errors[bestIndex - 1] && bestError < errors[bestIndex + 1];
 		}
 
-		return bestScore;
+		return bestError;
 	}
 
 	private double findBestFocusTwo(DMatrixRMaj P2) {
 		localMinimum = false;
 
-		// coeffients for linear to log scale
+		// coefficients for linear to log scale
 		double b = Math.log(sampleMax/sampleMin)/(numSamples-1);
-		double bestScore = Double.MAX_VALUE;
+		double bestError = Double.MAX_VALUE;
+		int bestInvalid = Integer.MAX_VALUE;
 
-		for (int i = 0; i < numSamples; i++) {
-			double f1 =sampleMin*Math.exp(b*i);
+		Arrays.fill(errors1,0);
+		Arrays.fill(errors2,0);
+
+		for (int idx1 = 0; idx1 < numSamples; idx1++) {
+			double f1 =sampleMin*Math.exp(b*idx1)*800;
+			if( idx1 == 20 )
+				f1 = 600;
 
 			boolean minimumChanged = false;
 			int bestIndex = -1;
 
-			for (int j = 0; j < numSamples; j++) {
-				double f2 =sampleMin*Math.exp(b*j);
+			for (int idx2 = 0; idx2 < numSamples; idx2++) {
+				double f2 =sampleMin*Math.exp(b*idx2)*800;
+				if( idx2 == 20 )
+					f2 = 600;
 
 				if( !computeRectifyH(f1,f2,P2,H)) {
-					scores[i] = Double.NaN;
+					errors1[idx1] = Double.NaN;
+					errors2[idx2] = Double.NaN;
 					continue;
 				}
-				MultiViewOps.rectifyHToAbsoluteQuadratic(H,Q);
+//				MultiViewOps.rectifyHToAbsoluteQuadratic(H,Q);
 
-				double score = scoreResults();
-				scores[j] = score;
+				double error = computeError();
+				errors1[idx1] += error;
+				errors2[idx2] += error;
 
-				if( score < bestScore ) {
+				boolean better = false;
+				if( foundInvalid < bestInvalid ) {
+					better = true;
+				} else if( foundInvalid == bestInvalid && error < bestError) {
+					better = true;
+				}
+
+				if( better ) {
 					minimumChanged = true;
-					bestIndex = j;
-					bestScore = score;
+					bestIndex = idx2;
+					bestError = error;
+					bestInvalid = foundInvalid;
 					bestH.set(H);
+					bestFocus1 = f1;
+					bestFocus2 = f2;
 				}
 
 				if( verbose != null ) {
-					verbose.printf("[%3d,%3d] f1=%5.2f f2=%5.2f score=%f\n",i,j,f1,f2,score);
+					verbose.printf("[%3d,%3d] f1=%5.2f f2=%5.2f score=%f invalid=%d\n",idx1,idx2,f1,f2,error,foundInvalid);
 				}
 			}
 
 			if( minimumChanged ) {
 				if (bestIndex > 0 && bestIndex < numSamples - 1) {
-					localMinimum = bestScore< scores[bestIndex - 1] && bestScore < scores[bestIndex + 1];
+					localMinimum = bestError< errors[bestIndex - 1] && bestError < errors[bestIndex + 1];
 				} else {
 					localMinimum = false;
 				}
 			}
 		}
-		return bestScore;
+		return bestError;
 	}
 
 	/**
@@ -328,55 +324,75 @@ public class SelfCalibrationGuessAndCheckFocus {
 		return true;
 	}
 
-	/**
-	 * Extracts the calibration matrix for each view and computes the score according to:
-	 *
-	 * w_sk*|K[0,1]| + w_ar*|K[0,0]-K[1,1]| + w_ao*(|K[0,2]| + |K[1,2]|)
-	 *
-	 * which gives matrices which fit the constraints lower scores.
-	 */
-	double scoreResults() {
+	double computeError() {
 
-		double totalScore = 0;
+		MultiViewOps.projectiveToMetric(P1,H,view_1_to_1,K);
+		PerspectiveOps.matrixToPinhole(K,0,0,intrinsic1);
+		MultiViewOps.projectiveToMetric(P2,H,view_1_to_2,K);
+		PerspectiveOps.matrixToPinhole(K,0,0,intrinsic2);
+		MultiViewOps.projectiveToMetric(P3,H,view_1_to_3,K);
+		PerspectiveOps.matrixToPinhole(K,0,0,intrinsic3);
 
-		for (int i = 0; i < normalizedP.size; i++) {
-			DMatrixRMaj P = normalizedP.get(i);
-			MultiViewOps.intrinsicFromAbsoluteQuadratic(Q,P,intrinsic);
+//		System.out.println("cam2 focal fx="+intrinsic2.fx+" fy="+intrinsic2.fx);
 
-			double score = 0;
+//		view_1_to_1.print();
 
-			// skew should be zero
-			score += w_sk*Math.abs(intrinsic.skew);
-			// aspect ratio unity
-			score += w_ar*(Math.max(intrinsic.fx,intrinsic.fy)/Math.min(intrinsic.fx,intrinsic.fy) - 1);
-			// principle point zero
-			score += w_uo*(Math.abs(intrinsic.cx) + Math.abs(intrinsic.cy));
+		double scale = view_1_to_2.T.norm();
+		view_1_to_2.T.divide(scale);
+		view_1_to_3.T.divide(scale);
 
-			totalScore += score;
+		Triangulate2ViewsMetric triangulate = FactoryMultiView.triangulate2ViewMetric(null);
+
+		matchesNorm.resize(matchesPixels.size());
+		Point3D_F64 pointIn1 = new Point3D_F64();
+		Point3D_F64 Xcam = new Point3D_F64();
+
+		Point2D_F64 pixel = new Point2D_F64();
+
+		Point3D_F64 Xcam0 = new Point3D_F64();
+
+
+		AssociatedTriple an = new AssociatedTriple();
+
+		foundInvalid = 0;
+		double error = 0;
+		double error3D = 0;
+
+		for (int i = 0; i < matchesPixels.size(); i++) {
+			AssociatedTriple ap = matchesPixels.get(i);
+
+			PerspectiveOps.convertPixelToNorm(intrinsic1,ap.p1.x,ap.p1.y,an.p1);
+			PerspectiveOps.convertPixelToNorm(intrinsic2,ap.p2.x,ap.p2.y,an.p2);
+
+			triangulate.triangulate(an.p1,an.p2,view_1_to_2,pointIn1);
+			SePointOps_F64.transform(view_1_to_3,pointIn1,Xcam);
+
+			Xcam0.set(Xcam);
+
+			if( Xcam.z < 0)
+				foundInvalid++;
+
+			PerspectiveOps.renderPixel(intrinsic3,Xcam,pixel);
+			error += pixel.distance2(ap.p3);
+
+			PerspectiveOps.convertPixelToNorm(intrinsic3,ap.p3.x,ap.p3.y,an.p3);
+			triangulate.triangulate(an.p1,an.p3,view_1_to_3,pointIn1);
+			SePointOps_F64.transform(view_1_to_2,pointIn1,Xcam);
+			PerspectiveOps.renderPixel(intrinsic2,Xcam,pixel);
+			error += pixel.distance2(ap.p2);
+
+			error3D += Xcam.distance(Xcam0);
+
+			if( Xcam.z < 0)
+				foundInvalid++;
 		}
-		return totalScore;
+
+//		System.out.println("     "+error3D);
+		return error;
 	}
 
-	public boolean isSameFocus() {
-		return sameFocus;
-	}
-
-	public void setSingleCamera(boolean sameFocus) {
-		this.sameFocus = sameFocus;
-	}
-
-	/**
-	 * Returns the projective to metric rectifying homography
-	 */
-	public DMatrixRMaj getRectifyingHomography() {
-		return bestH;
-	}
-
-	public boolean isLocalMinimum() {
-		return localMinimum;
-	}
-
-	public void setVerbose(PrintStream out , int level ) {
+	@Override
+	public void setVerbose(@Nullable PrintStream out, @Nullable Set<String> configuration) {
 		this.verbose = out;
 	}
 }

@@ -30,6 +30,7 @@ import boofcv.alg.geo.PerspectiveOps;
 import boofcv.alg.geo.bundle.cameras.BundlePinholeSimplified;
 import boofcv.alg.geo.selfcalib.EstimatePlaneAtInfinityGivenK;
 import boofcv.alg.geo.selfcalib.SelfCalibrationLinearDualQuadratic;
+import boofcv.alg.geo.selfcalib.TrifocalBruteForceSelfCalibration;
 import boofcv.factory.geo.*;
 import boofcv.misc.ConfigConverge;
 import boofcv.struct.calib.CameraPinhole;
@@ -380,34 +381,63 @@ public class ThreeViewEstimateMetricScene implements VerbosePrint {
 		listPinhole.clear();
 
 		if( manualFocalLength <= 0 ) {
-			// Estimate calibration parameters
-			SelfCalibrationLinearDualQuadratic selfcalib = new SelfCalibrationLinearDualQuadratic(1.0);
-			selfcalib.addCameraMatrix(P1);
-			selfcalib.addCameraMatrix(P2);
-			selfcalib.addCameraMatrix(P3);
+			int nominalFocal = Math.max(width,height);
+			List<AssociatedTriple> inliers = ransac.getMatchSet();
+			TrifocalTensor model = ransac.getModelParameters();
 
-			GeometricResult result = selfcalib.solve();
-			if (GeometricResult.SOLVE_FAILED != result && selfcalib.getSolutions().size() == 3) {
+			// TODO remove the projective step above
+			var selfcalib = new TrifocalBruteForceSelfCalibration();
+			selfcalib.configure(nominalFocal/4,nominalFocal*3);
+			selfcalib.numberOfSamples = 50;
+			selfcalib.fixedFocus = true;
+
+			System.out.println("Start brute force");
+			long time0 = System.nanoTime();
+			selfcalib.process(model, inliers);
+			long time1 = System.nanoTime();
+			System.out.println("Finished brute force time = "+(time1-time0)*1e-6+" (ms)");
+			System.out.println("  focal = "+selfcalib.getFocalLengthA());
+			System.out.println("  focal = "+selfcalib.getFocalLengthB());
+
+			H.set(selfcalib.getRectifyingHomography());
+
+			listPinhole.add( new CameraPinhole(selfcalib.focalLengthA,selfcalib.focalLengthA,0,0,0,width,height));
+			listPinhole.add( new CameraPinhole(selfcalib.focalLengthB,selfcalib.focalLengthB,0,0,0,width,height));
+			DMatrixRMaj K = new DMatrixRMaj(3,3);
+			MultiViewOps.projectiveToMetric(selfcalib.getCameraMatrix2(),H,worldToView.get(1),K);
+			listPinhole.add( PerspectiveOps.matrixToPinhole(K,width,height,null));
+
+			// Estimate calibration parameters
+			SelfCalibrationLinearDualQuadratic selfcalib2 = new SelfCalibrationLinearDualQuadratic(1.0);
+			selfcalib2.addCameraMatrix(P1);
+			selfcalib2.addCameraMatrix(P2);
+			selfcalib2.addCameraMatrix(P3);
+
+			GeometricResult result = selfcalib2.solve();
+			System.out.println("DualQuadtic solver = "+result);
+			if (GeometricResult.SOLVE_FAILED != result && selfcalib2.getSolutions().size() == 3) {
 				for (int i = 0; i < 3; i++) {
-					SelfCalibrationLinearDualQuadratic.Intrinsic c = selfcalib.getSolutions().get(i);
-					CameraPinhole p = new CameraPinhole(c.fx, c.fy, 0, 0, 0, width, height);
-					listPinhole.add(p);
-				}
-			} else {
-				// TODO Handle this better
-				System.out.println("Self calibration failed!");
-				for (int i = 0; i < 3; i++) {
-					CameraPinhole p = new CameraPinhole(width / 2, width / 2, 0, 0, 0, width, height);
-					listPinhole.add(p);
+					SelfCalibrationLinearDualQuadratic.Intrinsic c = selfcalib2.getSolutions().get(i);
+					System.out.println("  focal = "+c.fx+"  "+c.fy);
+//					CameraPinhole p = new CameraPinhole(c.fx, c.fy, 0, 0, 0, width, height);
+//					listPinhole.add(p);
 				}
 			}
-			// convert camera matrix from projective to metric
-			if( !MultiViewOps.absoluteQuadraticToH(selfcalib.getQ(),H) ) {
-				if( verbose != null ) {
-					verbose.println("Projective to metric failed");
-				}
-				return false;
-			}
+//			} else {
+//				// TODO Handle this better
+//				System.out.println("Self calibration failed!");
+//				for (int i = 0; i < 3; i++) {
+//					CameraPinhole p = new CameraPinhole(width / 2, width / 2, 0, 0, 0, width, height);
+//					listPinhole.add(p);
+//				}
+//			}
+//			// convert camera matrix from projective to metric
+//			if( !MultiViewOps.absoluteQuadraticToH(selfcalib.getQ(),H) ) {
+//				if( verbose != null ) {
+//					verbose.println("Projective to metric failed");
+//				}
+//				return false;
+//			}
 		} else {
 			// Assume all cameras have a fixed known focal length
 			EstimatePlaneAtInfinityGivenK estimateV = new EstimatePlaneAtInfinityGivenK();
