@@ -1397,9 +1397,6 @@ public class MultiViewOps {
 	 * </p>
 	 * {@code P = K*[R|T]*H} where H is the inverse of the rectifying homography.
 	 *
-	 * <p>WARNING: Do not use if converting multiple cameras that have a common projective frame. You will lose the
-	 * scale factor if you use this function. {@link #projectiveToMetric} instead.</p>
-	 *
 	 * @param cameraMatrix (Input) camera matrix. 3x4
 	 * @param H (Input) Rectifying homography. 4x4
 	 * @param K (Input) Known calibration matrix
@@ -1437,6 +1434,12 @@ public class MultiViewOps {
 			CommonOps_DDRM.scale(-1,R);
 			worldToView.T.scale(-1);
 		}
+
+		// recover the scale of T. This is important when trying to construct a common metric frame from a common
+		// projective frame
+		double[] sv = svd.getSingularValues();
+		double sv_mag = (sv[0]+sv[1]+sv[2])/3.0;
+		worldToView.T.divideIP(sv_mag);
 	}
 
 	/**

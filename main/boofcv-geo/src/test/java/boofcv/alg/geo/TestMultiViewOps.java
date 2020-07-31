@@ -1019,6 +1019,7 @@ class TestMultiViewOps {
 			Se3_F64 m = SpecialEuclideanOps_F64.eulerXyz(Tx,Ty,Tz,rotX,rotY,rotZ,null);
 
 			DMatrixRMaj P = PerspectiveOps.createCameraMatrix(m.R,m.T,K,null);
+			CommonOps_DDRM.scale(0.9,P,P); // mess up the scale of P
 
 			Equation eq = new Equation(P,"P",K,"K");
 			eq.process("p=[-0.9,0.1,0.7]'").
@@ -1050,6 +1051,7 @@ class TestMultiViewOps {
 			Se3_F64 m = SpecialEuclideanOps_F64.eulerXyz(Tx,Ty,Tz,rotX,rotY,rotZ,null);
 
 			DMatrixRMaj P = PerspectiveOps.createCameraMatrix(m.R,m.T,K,null);
+			CommonOps_DDRM.scale(0.9,P,P); // mess up the scale of P
 
 			Equation eq = new Equation(P,"P",K,"K");
 			eq.process("p=[-0.9,0.1,0.7]'").
