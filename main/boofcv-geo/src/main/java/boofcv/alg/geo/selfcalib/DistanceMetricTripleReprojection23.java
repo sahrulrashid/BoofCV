@@ -97,7 +97,7 @@ public class DistanceMetricTripleReprojection23 implements DistanceFromModel<Met
 		if( Xcam.z < 0 )
 			return Double.MAX_VALUE;
 		PerspectiveOps.renderPixel(model.view2,Xcam,pixel);
-		return error + pixel.distance2(obs.p3);
+		return error + pixel.distance2(obs.p2);
 	}
 
 	@Override

@@ -36,4 +36,12 @@ public class MetricCameraTriple {
 	public final CameraPinhole view1 = new CameraPinhole();
 	public final CameraPinhole view2 = new CameraPinhole();
 	public final CameraPinhole view3 = new CameraPinhole();
+
+	public void setTo( MetricCameraTriple src ) {
+		view_1_to_2.set(src.view_1_to_2);
+		view_1_to_3.set(src.view_1_to_3);
+		view1.set(src.view1);
+		view2.set(src.view2);
+		view3.set(src.view3);
+	}
 }

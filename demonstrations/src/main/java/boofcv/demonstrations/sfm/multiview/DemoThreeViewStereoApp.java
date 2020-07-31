@@ -32,6 +32,7 @@ import boofcv.alg.geo.PerspectiveOps;
 import boofcv.alg.geo.RectifyImageOps;
 import boofcv.alg.geo.bundle.cameras.BundlePinholeSimplified;
 import boofcv.alg.geo.rectify.RectifyCalibrated;
+import boofcv.alg.geo.selfcalib.MetricCameraTriple;
 import boofcv.alg.sfm.structure.ThreeViewEstimateMetricScene;
 import boofcv.core.image.ConvertImage;
 import boofcv.factory.feature.associate.FactoryAssociation;
@@ -562,18 +563,27 @@ public class DemoThreeViewStereoApp extends DemonstrationBase {
 			}
 
 			SwingUtilities.invokeLater(()->{
+				MetricCameraTriple m = structureEstimator.ransac.getModelParameters();
 				int n = structureEstimator.ransac.getMatchSet().size();
+				controls.addText(String.format("### Ransac-Inliers %d\n",n));
+				controls.addText(String.format("  cam[0] f=%.1f\n",m.view1.fx));
+				controls.addText(String.format("  cam[1] f=%.1f\n",m.view2.fx));
+				controls.addText(String.format("  cam[2] f=%.1f\n",m.view3.fx));
+			});
+
+			SwingUtilities.invokeLater(()->{
 				double score = structureEstimator.bundleAdjustment.getFitScore();
 				int numObs = structureEstimator.observations.getObservationCount();
 				int numPoints = structureEstimator.structure.points.size;
-				controls.addText(String.format("Tri Feats %d\n",n));
+
+				controls.addText("### SBA\n");
+				controls.addText(String.format("  Obs %4d Pts %d\n",numObs,numPoints));
 				for (int i = 0; i < 3; i++) {
 					BundlePinholeSimplified c = structureEstimator.structure.cameras.get(i).getModel();
-					controls.addText(String.format("cam[%d] f=%.1f\n",i,c.f));
-					controls.addText(String.format("   k1=%.2f k2=%.2f\n",c.k1,c.k2));
+					controls.addText(String.format("  cam[%d] f=%.1f\n",i,c.f));
+					controls.addText(String.format("     k1=%.2f k2=%.2f\n",c.k1,c.k2));
 				}
-				controls.addText(String.format("SBA Obs %4d Pts %d\n",numObs,numPoints));
-				controls.addText(String.format("SBA fit score %.3f\n",score));
+				controls.addText(String.format("  fit score %.3f\n",score));
 			});
 		} else {
 			SwingUtilities.invokeLater(() -> controls.addText("Skipping Structure\n"));
@@ -658,7 +668,6 @@ public class DemoThreeViewStereoApp extends DemonstrationBase {
 				disparity.width,disparity.height,visualDisparity,visualDisparity.getType());
 
 		BoofSwingUtil.invokeNowOrLater(()-> {
-			controls.addText("Associated "+associated.size+"\n");
 			VisualizeImageData.disparity(disparity, visualDisparity, disparityRange, 0);
 			guiDisparity.setImageRepaint(visualDisparity);
 			if( _automaticChangeViews )

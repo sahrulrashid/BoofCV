@@ -19,30 +19,21 @@
 package boofcv.alg.sfm.structure;
 
 import boofcv.abst.geo.Estimate1ofTrifocalTensor;
-import boofcv.abst.geo.RefineThreeViewProjective;
 import boofcv.abst.geo.bundle.BundleAdjustment;
 import boofcv.abst.geo.bundle.PruneStructureFromSceneMetric;
 import boofcv.abst.geo.bundle.SceneObservations;
 import boofcv.abst.geo.bundle.SceneStructureMetric;
-import boofcv.alg.geo.GeometricResult;
-import boofcv.alg.geo.MultiViewOps;
-import boofcv.alg.geo.PerspectiveOps;
 import boofcv.alg.geo.bundle.cameras.BundlePinholeSimplified;
-import boofcv.alg.geo.selfcalib.EstimatePlaneAtInfinityGivenK;
-import boofcv.alg.geo.selfcalib.SelfCalibrationLinearDualQuadratic;
-import boofcv.alg.geo.selfcalib.TrifocalBruteForceSelfCalibration;
+import boofcv.alg.geo.selfcalib.*;
 import boofcv.factory.geo.*;
 import boofcv.misc.ConfigConverge;
 import boofcv.struct.calib.CameraPinhole;
 import boofcv.struct.geo.AssociatedTriple;
-import boofcv.struct.geo.TrifocalTensor;
 import georegression.struct.point.Point3D_F64;
-import georegression.struct.point.Vector3D_F64;
 import georegression.struct.se.Se3_F64;
 import org.ddogleg.fitting.modelset.ransac.Ransac;
 import org.ddogleg.optimization.lm.ConfigLevenbergMarquardt;
 import org.ddogleg.struct.VerbosePrint;
-import org.ejml.data.DMatrixRMaj;
 import org.ejml.dense.row.CommonOps_DDRM;
 
 import javax.annotation.Nullable;
@@ -93,17 +84,11 @@ public class ThreeViewEstimateMetricScene implements VerbosePrint {
 	public ConfigConverge convergeSBA = new ConfigConverge(1e-6,1e-6,100);
 
 	// estimating the trifocal tensor and storing which observations are in the inlier set
-	public Ransac<TrifocalTensor,AssociatedTriple> ransac;
+	public Ransac<MetricCameraTriple, AssociatedTriple> ransac;
 	public List<AssociatedTriple> inliers;
-	public Estimate1ofTrifocalTensor trifocalEstimator;
 
 	// how much and where it should print to
 	private PrintStream verbose;
-
-	// Projective camera matrices
-	protected DMatrixRMaj P1 = CommonOps_DDRM.identity(3,4);
-	protected DMatrixRMaj P2 = new DMatrixRMaj(3,4);
-	protected DMatrixRMaj P3 = new DMatrixRMaj(3,4);
 
 	// storage for pinhole cameras
 	protected List<CameraPinhole> listPinhole = new ArrayList<>();
@@ -161,14 +146,7 @@ public class ThreeViewEstimateMetricScene implements VerbosePrint {
 		init(width, height);
 
 		// Fit a trifocal tensor to the input observations
-		if (!robustFitTrifocal(associated) )
-			return false;
-
-		// estimate the scene's structure
-		if( !estimateProjectiveScene())
-			return false;
-
-		if( !projectiveToMetric() )
+		if (!robustMetric(associated) )
 			return false;
 
 		// Run bundle adjustment while make sure a valid solution is found
@@ -186,8 +164,24 @@ public class ThreeViewEstimateMetricScene implements VerbosePrint {
 	private void init( int width , int height) {
 		this.width = width;
 		this.height = height;
-		ransac = FactoryMultiViewRobust.trifocalRansac(configTriRansac,configError,configRansac);
-		trifocalEstimator = FactoryMultiView.trifocal_1(configTriFit);
+		Estimate1ofTrifocalTensor trifocal = FactoryMultiView.trifocal_1(null);
+		var alg = new SelfCalibrationLinearDualQuadratic(1.0);
+
+		int maxSide = Math.max(width,height);
+		var brute = new TrifocalBruteForceSelfCalibration();
+		brute.configure(maxSide/3,maxSide*2);
+		brute.numberOfSamples = 50;
+		brute.fixedFocus = true;
+
+//		var generator = new GenerateMetricCameraTripleDualQuadratic(trifocal,alg);
+		var generator = new GenerateMetricCameraTripleBruteForceFocus(trifocal,brute);
+		var distance = new DistanceMetricTripleReprojection23();
+		var manager = new ModelManagerMetricCameraTriple();
+
+		// convert from pixels to pixels squared
+		double threshold = 2*Math.pow(2.5,2);
+
+		ransac = new Ransac<>(0xDeADBEED, manager, generator, distance, 7500, threshold);
 		structure = null;
 		observations = null;
 	}
@@ -195,23 +189,37 @@ public class ThreeViewEstimateMetricScene implements VerbosePrint {
 	/**
 	 * Fits a trifocal tensor to the list of matches features using a robust method
 	 */
-	private boolean robustFitTrifocal(List<AssociatedTriple> associated) {
+	private boolean robustMetric(List<AssociatedTriple> associated) {
 		// Fit a trifocal tensor to the observations robustly
-		ransac.process(associated);
+		if( !ransac.process(associated) )
+			return false;
 
 		inliers = ransac.getMatchSet();
-		TrifocalTensor model = ransac.getModelParameters();
+		MetricCameraTriple model = ransac.getModelParameters();
 		if( verbose != null )
 			verbose.println("Remaining after RANSAC "+inliers.size()+" / "+associated.size());
 
-		// estimate using all the inliers
-		// No need to re-scale the input because the estimator automatically adjusts the input on its own
-		if( !trifocalEstimator.process(inliers,model) ) {
-			if( verbose != null ) {
-				verbose.println("Trifocal estimator failed");
-			}
-			return false;
+		worldToView.get(0).reset();
+		worldToView.get(1).set(model.view_1_to_2);
+		worldToView.get(2).set(model.view_1_to_3);
+
+		listPinhole.clear();
+		listPinhole.add(model.view1);
+		listPinhole.add(model.view2);
+		listPinhole.add(model.view3);
+
+		// scale is arbitrary. Set max translation to 1
+		double maxT = 0;
+		for( Se3_F64 p : worldToView ) {
+			maxT = Math.max(maxT,p.T.norm());
 		}
+		for( Se3_F64 p : worldToView ) {
+			p.T.scale(1.0/maxT);
+			if( verbose != null ) {
+				verbose.println(p);
+			}
+		}
+
 		return true;
 	}
 
@@ -315,27 +323,6 @@ public class ThreeViewEstimateMetricScene implements VerbosePrint {
 	}
 
 	/**
-	 * Estimate the projective scene from the trifocal tensor
-	 */
-	private boolean estimateProjectiveScene() {
-		List<AssociatedTriple> inliers = ransac.getMatchSet();
-		TrifocalTensor model = ransac.getModelParameters();
-
-		MultiViewOps.trifocalCameraMatrices(model,P2,P3);
-
-		// Most of the time this makes little difference, but in some edges cases this enables it to
-		// converge correctly
-		RefineThreeViewProjective refineP23 = FactoryMultiView.threeViewRefine(null);
-		if( !refineP23.process(inliers,P2,P3,P2,P3) ) {
-			if( verbose != null ) {
-				verbose.println("Can't refine P2 and P3!");
-			}
-			return false;
-		}
-		return true;
-	}
-
-	/**
 	 * Using the initial metric reconstruction, provide the initial configurations for bundle adjustment
 	 */
 	private void setupMetricBundleAdjustment(List<AssociatedTriple> inliers) {
@@ -368,123 +355,6 @@ public class ThreeViewEstimateMetricScene implements VerbosePrint {
 		}
 		// Initial estimate for point 3D locations
 		triangulatePoints(structure,observations);
-	}
-
-	/**
-	 * Estimates the transform from projective to metric geometry
-	 * @return true if successful
-	 */
-	boolean projectiveToMetric() {
-
-		// homography from projective to metric
-		DMatrixRMaj H = new DMatrixRMaj(4,4);
-		listPinhole.clear();
-
-		if( manualFocalLength <= 0 ) {
-			int nominalFocal = Math.max(width,height);
-			List<AssociatedTriple> inliers = ransac.getMatchSet();
-			TrifocalTensor model = ransac.getModelParameters();
-
-			// TODO remove the projective step above
-			var selfcalib = new TrifocalBruteForceSelfCalibration();
-			selfcalib.configure(nominalFocal/4,nominalFocal*3);
-			selfcalib.numberOfSamples = 50;
-			selfcalib.fixedFocus = true;
-
-			System.out.println("Start brute force");
-			long time0 = System.nanoTime();
-			selfcalib.process(model, inliers);
-			long time1 = System.nanoTime();
-			System.out.println("Finished brute force time = "+(time1-time0)*1e-6+" (ms)");
-			System.out.println("  focal = "+selfcalib.getFocalLengthA());
-			System.out.println("  focal = "+selfcalib.getFocalLengthB());
-
-			H.set(selfcalib.getRectifyingHomography());
-
-			listPinhole.add( new CameraPinhole(selfcalib.focalLengthA,selfcalib.focalLengthA,0,0,0,width,height));
-			listPinhole.add( new CameraPinhole(selfcalib.focalLengthB,selfcalib.focalLengthB,0,0,0,width,height));
-			DMatrixRMaj K = new DMatrixRMaj(3,3);
-			MultiViewOps.projectiveToMetric(selfcalib.getCameraMatrix2(),H,worldToView.get(1),K);
-			listPinhole.add( PerspectiveOps.matrixToPinhole(K,width,height,null));
-
-			// Estimate calibration parameters
-			SelfCalibrationLinearDualQuadratic selfcalib2 = new SelfCalibrationLinearDualQuadratic(1.0);
-			selfcalib2.addCameraMatrix(P1);
-			selfcalib2.addCameraMatrix(P2);
-			selfcalib2.addCameraMatrix(P3);
-
-			GeometricResult result = selfcalib2.solve();
-			System.out.println("DualQuadtic solver = "+result);
-			if (GeometricResult.SOLVE_FAILED != result && selfcalib2.getSolutions().size() == 3) {
-				for (int i = 0; i < 3; i++) {
-					SelfCalibrationLinearDualQuadratic.Intrinsic c = selfcalib2.getSolutions().get(i);
-					System.out.println("  focal = "+c.fx+"  "+c.fy);
-//					CameraPinhole p = new CameraPinhole(c.fx, c.fy, 0, 0, 0, width, height);
-//					listPinhole.add(p);
-				}
-			}
-//			} else {
-//				// TODO Handle this better
-//				System.out.println("Self calibration failed!");
-//				for (int i = 0; i < 3; i++) {
-//					CameraPinhole p = new CameraPinhole(width / 2, width / 2, 0, 0, 0, width, height);
-//					listPinhole.add(p);
-//				}
-//			}
-//			// convert camera matrix from projective to metric
-//			if( !MultiViewOps.absoluteQuadraticToH(selfcalib.getQ(),H) ) {
-//				if( verbose != null ) {
-//					verbose.println("Projective to metric failed");
-//				}
-//				return false;
-//			}
-		} else {
-			// Assume all cameras have a fixed known focal length
-			EstimatePlaneAtInfinityGivenK estimateV = new EstimatePlaneAtInfinityGivenK();
-			estimateV.setCamera1(manualFocalLength,manualFocalLength,0,0,0);
-			estimateV.setCamera2(manualFocalLength,manualFocalLength,0,0,0);
-
-			Vector3D_F64 v = new Vector3D_F64(); // plane at infinity
-			if( !estimateV.estimatePlaneAtInfinity(P2,v))
-				throw new RuntimeException("Failed!");
-
-			DMatrixRMaj K = PerspectiveOps.pinholeToMatrix(manualFocalLength,manualFocalLength,0,0,0);
-			MultiViewOps.createProjectiveToMetric(K,v.x,v.y,v.z,1,H);
-
-			for (int i = 0; i < 3; i++) {
-				CameraPinhole p = new CameraPinhole(manualFocalLength,manualFocalLength, 0, 0, 0, width, height);
-				listPinhole.add(p);
-			}
-		}
-
-		if( verbose != null ) {
-			for (int i = 0; i < 3; i++) {
-				CameraPinhole r = listPinhole.get(i);
-				verbose.println("fx=" + r.fx + " fy=" + r.fy + " skew=" + r.skew);
-			}
-			verbose.println("Projective to metric");
-		}
-
-		DMatrixRMaj K = new DMatrixRMaj(3,3);
-
-		// ignore K since we already have that
-		MultiViewOps.projectiveToMetric(P1,H,worldToView.get(0),K);
-		MultiViewOps.projectiveToMetric(P2,H,worldToView.get(1),K);
-		MultiViewOps.projectiveToMetric(P3,H,worldToView.get(2),K);
-
-		// scale is arbitrary. Set max translation to 1
-		double maxT = 0;
-		for( Se3_F64 p : worldToView ) {
-			maxT = Math.max(maxT,p.T.norm());
-		}
-		for( Se3_F64 p : worldToView ) {
-			p.T.scale(1.0/maxT);
-			if( verbose != null ) {
-				verbose.println(p);
-			}
-		}
-
-		return true;
 	}
 
 	/**
