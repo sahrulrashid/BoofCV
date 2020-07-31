@@ -219,13 +219,34 @@ public class TrifocalToCalibratingHomography {
 	 * solution.
 	 */
 	void computeHypothesesForH(DMatrixRMaj K1, DMatrixRMaj K2, List<Se3_F64> list_view_1_to_2) {
+		DMatrixRMaj K1_inv = new DMatrixRMaj(3,3);
+		DMatrixRMaj K2_prime = new DMatrixRMaj(3,3);
+		DMatrixRMaj P1_prime = new DMatrixRMaj(3,4);
+		DMatrixRMaj P2_prime = P2.createLike();
+
+		// Improve numerics by normalizing based in K1
+		CommonOps_DDRM.invert(K1,K1_inv);
+		CommonOps_DDRM.mult(K1_inv,K2,K2_prime);
+
+		// P1' = inv(K1)*P1
+		CommonOps_DDRM.insert(K1_inv,P1_prime,0,0);
+		// P2' = inv(k1)*P2
+		CommonOps_DDRM.mult(K1_inv,P2,P2_prime);
+
+		DMatrixRMaj H_prime = new DMatrixRMaj(4,4);
+
+		MultiViewOps.projectiveToIdentityH(P1_prime,H_prime);
+		CommonOps_DDRM.mult(P2_prime.copy(),H_prime,P2_prime);
+
 		// P2*H ~= [A,a]*H = [A,a]*[K1 0;v',1]
 		// AK ~= A*K1
-		PerspectiveOps.projectionSplit(P2,A,a);
-		CommonOps_DDRM.mult(A,K1, AK1);
+		PerspectiveOps.projectionSplit(P2_prime,A,a);
+		AK1.set(A);
+//		CommonOps_DDRM.mult(A,K1, AK1);
 
-		CommonOps_DDRM.insert(K1,calibratingH,0,0);
-		calibratingH.set(3,3,1);
+		CommonOps_DDRM.setIdentity(calibratingH);
+//		CommonOps_DDRM.insert(K1,calibratingH,0,0);
+//		calibratingH.set(3,3,1);
 
 		hypothesesH.reset();
 
@@ -234,7 +255,7 @@ public class TrifocalToCalibratingHomography {
 
 			// K2*[R,T] = [K2*R, K2*T] = P2*H
 			// KR = K2*R
-			CommonOps_DDRM.mult(K2,view_1_to_2.R, KiR);
+			CommonOps_DDRM.mult(K2_prime,view_1_to_2.R, KiR);
 
 			// Find the scale factor between AK1 and AKiR. Brute force through all possible combinations and select
 			// the one which is least prone to numerical instability due to a small denominator
@@ -290,7 +311,9 @@ public class TrifocalToCalibratingHomography {
 			// DESIGN NOTE:
 			// Could Lagrange multipliers be used here where KiR is known to have zeros?
 
-			hypothesesH.grow().set(calibratingH);
+			CommonOps_DDRM.mult(H_prime,calibratingH,hypothesesH.grow());
+
+//			hypothesesH.grow().set(calibratingH);
 		}
 	}
 

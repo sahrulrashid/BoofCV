@@ -33,9 +33,8 @@ class TestGenerateMetricCameraTripleBruteForceFocus extends CommonGenerateMetric
 		Estimate1ofTrifocalTensor trifocal = FactoryMultiView.trifocal_1(null);
 		var alg = new TrifocalBruteForceSelfCalibration();
 		alg.fixedFocus = false;
-//		alg.numberOfSamples = 200;
-		alg.configure(300,1200); // narrower range
-//		alg.configure(300,2500); <-- if the number of samples is increased it will pass with this, but is slow right now
+		alg.numberOfSamples = 200;
+		alg.configure(300,2500);
 //		alg.setVerbose(System.out,null);
 
 		return new GenerateMetricCameraTripleBruteForceFocus(trifocal,alg);
